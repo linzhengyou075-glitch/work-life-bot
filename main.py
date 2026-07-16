@@ -2,15 +2,15 @@ from datetime import date
 import json
 
 from fastapi import FastAPI, Request, Form, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from .auth import build_authorize_url, exchange_code, get_profile, new_state
-from .config import settings
-from .database import init_db, upsert_user, list_shifts, upsert_shift, get_today_shift
-from .line_api import verify_signature, reply_message, work_entry_flex
+from auth import build_authorize_url, exchange_code, get_profile, new_state
+from config import settings
+from database import init_db, upsert_user, list_shifts, upsert_shift, get_today_shift
+from line_api import verify_signature, reply_message, work_entry_flex
 
 app = FastAPI(title="Work Life", version="1.0.0")
 app.add_middleware(
@@ -20,8 +20,12 @@ app.add_middleware(
     same_site="lax",
     https_only=settings.base_url.startswith("https://"),
 )
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
+templates = Jinja2Templates(directory=".")
+
+
+@app.get("/static/style.css")
+def static_style():
+    return FileResponse("style.css", media_type="text/css")
 
 @app.on_event("startup")
 def startup():

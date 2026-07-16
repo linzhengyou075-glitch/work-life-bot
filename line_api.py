@@ -1,5 +1,5 @@
 import base64, hashlib, hmac, requests
-from .config import settings
+from config import settings
 
 def verify_signature(raw_body, signature):
     if not settings.line_channel_secret or not signature:

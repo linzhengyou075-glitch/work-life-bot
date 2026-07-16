@@ -1,7 +1,7 @@
 import secrets
 from urllib.parse import urlencode
 import requests
-from .config import settings
+from config import settings
 
 AUTH_URL = "https://access.line.me/oauth2/v2.1/authorize"
 TOKEN_URL = "https://api.line.me/oauth2/v2.1/token"
