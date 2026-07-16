@@ -226,7 +226,18 @@ def schedule_save(
 ):
     user,resp=protected(request,"/quick-schedule")
     if resp:return resp
-    save_shift(work_date,shift_type_id,overtime=="1",overtime_end,manager_tasks=="1",note.strip())
+    try:
+        save_shift(work_date,shift_type_id,overtime=="1",overtime_end,manager_tasks=="1",note.strip())
+    except (ValueError, OSError) as exc:
+        return templates.TemplateResponse("schedule.html",{
+            "request":request,"user":user,"shifts":list_shifts(),"shift_types":list_shift_types(),
+            "save_error":str(exc)
+        },status_code=400)
+    except Exception:
+        return templates.TemplateResponse("schedule.html",{
+            "request":request,"user":user,"shifts":list_shifts(),"shift_types":list_shift_types(),
+            "save_error":"儲存失敗，請稍後再試；原本資料沒有被覆蓋。"
+        },status_code=500)
     return RedirectResponse("/quick-schedule?saved=1",303)
 
 @app.post("/schedule/delete")

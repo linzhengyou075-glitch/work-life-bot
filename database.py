@@ -356,18 +356,28 @@ def _condition_ok(kind,work_date,manager):
     return kind=="always" or (kind=="wed_sun" and weekday in (2,6)) or (kind=="sunday" and weekday==6) or (kind=="manager" and manager)
 
 def _sync_logistics(db,work_date,shift):
-    db.execute("DELETE FROM daily_logistics WHERE work_date=?",(work_date,))
-    if shift["store_code"]=="X":
-        return
-    mode = "late" if shift["start_time"]=="15:00" else "night"
-    sql = "SELECT * FROM logistics_settings WHERE is_active=1 AND "
-    sql += "applies_late=1" if mode=="late" else "applies_night=1"
-    for item in db.execute(sql):
-        if shift["store_code"]=="B" and not item["applies_b"]:
-            continue
-        if shift["store_code"]=="C" and not item["applies_c"]:
-            continue
-        db.execute("INSERT OR IGNORE INTO daily_logistics(work_date,logistics_id) VALUES (?,?)",(work_date,item["id"]))
+    """同步當日物流，但不清空既有到店／完成紀錄。"""
+    desired_ids=[]
+    if shift["store_code"]!="X":
+        mode = "late" if shift["start_time"]=="15:00" else "night"
+        sql = "SELECT * FROM logistics_settings WHERE is_active=1 AND "
+        sql += "applies_late=1" if mode=="late" else "applies_night=1"
+        for item in db.execute(sql):
+            if shift["store_code"]=="B" and not item["applies_b"]:
+                continue
+            if shift["store_code"]=="C" and not item["applies_c"]:
+                continue
+            desired_ids.append(item["id"])
+            db.execute("INSERT OR IGNORE INTO daily_logistics(work_date,logistics_id) VALUES (?,?)",(work_date,item["id"]))
+    # 只移除尚未有任何進度、且已不適用的自動物流；已到店或已完成紀錄永久保留。
+    if desired_ids:
+        marks=",".join("?" for _ in desired_ids)
+        db.execute(f"""DELETE FROM daily_logistics WHERE work_date=?
+        AND logistics_id NOT IN ({marks}) AND arrived_at IS NULL AND completed_at IS NULL""",
+        (work_date,*desired_ids))
+    else:
+        db.execute("""DELETE FROM daily_logistics WHERE work_date=?
+        AND arrived_at IS NULL AND completed_at IS NULL""",(work_date,))
 
 def save_shift(work_date,shift_type_id,overtime=False,overtime_end="",manager_tasks=False,note=""):
     with connect() as db:
@@ -381,14 +391,32 @@ def save_shift(work_date,shift_type_id,overtime=False,overtime_end="",manager_ta
         note=excluded.note,updated_at=CURRENT_TIMESTAMP""",
         (work_date,shift_type_id,int(bool(overtime)),overtime_end or None,int(bool(manager_tasks)),note))
         shift_id=db.execute("SELECT id FROM shifts WHERE work_date=?",(work_date,)).fetchone()["id"]
-        db.execute("DELETE FROM daily_work_items WHERE work_date=? AND is_done=0",(work_date,))
+        desired_template_ids=[]
         if st["template_id"]:
             for item in db.execute("SELECT * FROM work_template_items WHERE template_id=? ORDER BY sort_order,id",(st["template_id"],)):
-                if _condition_ok(item["condition_type"],work_date,manager_tasks):
-                    db.execute("""INSERT OR IGNORE INTO daily_work_items
+                if not _condition_ok(item["condition_type"],work_date,manager_tasks):
+                    continue
+                desired_template_ids.append(item["id"])
+                existing=db.execute("""SELECT id,is_done FROM daily_work_items
+                WHERE work_date=? AND template_item_id=?""",(work_date,item["id"])).fetchone()
+                if existing:
+                    # 更新排程文字，但保留完成狀態與完成時間。
+                    db.execute("""UPDATE daily_work_items SET shift_id=?,title=?,scheduled_time=?,icon=?,category=?
+                    WHERE id=?""",(shift_id,item["title"],item["scheduled_time"],item["icon"],item["category"],existing["id"]))
+                else:
+                    db.execute("""INSERT INTO daily_work_items
                     (work_date,shift_id,template_item_id,title,scheduled_time,icon,category)
                     VALUES (?,?,?,?,?,?,?)""",
                     (work_date,shift_id,item["id"],item["title"],item["scheduled_time"],item["icon"],item["category"]))
+        # 班別改變時，只移除舊班別尚未完成的自動項目；手動項目與已完成項目保留。
+        if desired_template_ids:
+            marks=",".join("?" for _ in desired_template_ids)
+            db.execute(f"""DELETE FROM daily_work_items WHERE work_date=?
+            AND template_item_id IS NOT NULL AND template_item_id NOT IN ({marks}) AND is_done=0""",
+            (work_date,*desired_template_ids))
+        else:
+            db.execute("""DELETE FROM daily_work_items WHERE work_date=?
+            AND template_item_id IS NOT NULL AND is_done=0""",(work_date,))
         _sync_logistics(db,work_date,st)
 
 def delete_shift(work_date):
@@ -431,11 +459,8 @@ def save_logistics_setting(item_id,name,icon,start_time,end_time,content,applies
             if result.rowcount == 0:
                 raise ValueError("找不到要修改的物流設定")
         elif existing:
-            db.execute("""UPDATE logistics_settings SET icon=?,start_time=?,end_time=?,content=?,
-            applies_b=?,applies_c=?,applies_late=?,applies_night=?,remind_minutes=?,
-            line_push=?,show_carousel=?,is_active=?,updated_at=CURRENT_TIMESTAMP WHERE id=?""",
-            (icon,start_time,end_time,content,applies_b,applies_c,applies_late,applies_night,
-             remind_minutes,line_push,show_carousel,is_active,existing["id"]))
+            # 「新增」不可暗中覆蓋同名舊資料，避免使用者以為建立新項目卻改掉原資料。
+            raise ValueError("已有相同名稱的物流設定；要修改請按該項目的『編輯』，或使用不同名稱")
         else:
             db.execute("""INSERT INTO logistics_settings
             (name,icon,start_time,end_time,content,applies_b,applies_c,applies_late,
