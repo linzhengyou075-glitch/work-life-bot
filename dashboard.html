@@ -1,67 +1,195 @@
-<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/style.css"><title>Work Life 首頁</title></head><body>
-<div class="shell">
-<header class="topbar">
-  <div><div class="brand">Work Life</div><div class="subtitle">工作與生活，都好好安排</div></div>
-  <div class="header-actions"><a class="icon-btn" href="/notifications">🔔</a><img class="avatar" src="{{ user.pictureUrl or '' }}"></div>
-</header>
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="/static/style.css">
+  <title>Work Life 網頁版</title>
+</head>
+<body class="web-dashboard-body">
+<div class="web-app">
+  <header class="web-header">
+    <a class="web-logo" href="/dashboard">
+      <img src="/static/worklife_mascot.png" alt="Work Life">
+      <div><b>Work Life</b><small>工作生活小幫手・網頁版</small></div>
+    </a>
 
-<section class="card hero">
-  <div class="hero-grid">
-    <div>
-      <div class="sync-pill"><i class="sync-dot"></i>已同步・<span data-sync-time>--:--</span></div>
-      <h1>嗨，{{ user.displayName }} 👋</h1>
-      <p>{{ today }}・今天也辛苦了</p>
-      {% if shift %}
-      <h2>{{ '太平建昌店' if shift.store_code == 'B' else '太平溪洲店' if shift.store_code == 'C' else '今天休假' }}</h2>
-      <p>{{ '晚班 15:00－23:00' if shift.shift_type == 'late' else '大夜班 23:00－07:00' if shift.shift_type == 'night' else '好好休息一下' }}</p>
-      {% else %}
-      <h2>今天尚未設定班表</h2><a class="btn" href="/schedule">新增班表</a>
-      {% endif %}
+    <nav class="web-topnav">
+      <a class="active" href="/dashboard"><span>⌂</span>首頁</a>
+      <a href="/schedule"><span>▣</span>班表</a>
+      <a href="/work-records"><span>✎</span>工作事項</a>
+      <a href="/work-records"><span>＄</span>短收登錄</a>
+      <a href="/health"><span>♡</span>健康管理</a>
+      <a href="/tasks"><span>☑</span>待辦事項</a>
+      <a href="/profile"><span>⚙</span>設定</a>
+    </nav>
+
+    <div class="web-user">
+      <a href="/notifications" class="web-bell">🔔<i>3</i></a>
+      <div class="web-sync"><i></i> 已同步 <span data-sync-time>--:--</span></div>
+      <img src="{{ user.pictureUrl or '/static/worklife_mascot.png' }}" alt="">
+      <b>{{ user.displayName }}</b>
     </div>
-    <img class="mascot" src="/static/worklife_mascot.png" alt="Work Life AI">
-  </div>
-</section>
+  </header>
 
-<section class="grid">
-  <a class="card metric pink" href="/work-records"><div class="icon">💸</div><small class="muted">今日短收</small><strong class="dynamic-number" data-live="shortage">${{ counts.shortage_total }}</strong><div class="progress"><i style="--value:32%"></i></div></a>
-  <a class="card metric purple" href="/tasks"><div class="icon">✅</div><small class="muted">待辦事項</small><strong><span data-live="pending">{{ counts.pending_tasks }}</span> 件</strong><div class="progress"><i style="--value:64%"></i></div></a>
-  <a class="card metric blue" href="/schedule"><div class="icon">📅</div><small class="muted">班表</small><strong>建昌／溪洲</strong><div class="progress"><i style="--value:48%"></i></div></a>
-  <a class="card metric mint" href="/health"><div class="icon">⌚</div><small class="muted">今日步數</small><strong><span data-count="8420">0</span></strong><div class="progress"><i style="--value:72%"></i></div></a>
-</section>
+  <main class="web-workspace">
+    <aside class="web-left">
+      <section class="panel date-panel">
+        <div class="panel-title">📅 今日日期</div>
+        <strong>{{ today }}</strong>
+        <span>Work Life 即時工作台</span>
+      </section>
 
-<section class="card">
-  <div class="section-title"><h3>快捷功能</h3><small class="muted">工作＋生活</small></div>
-  <div class="quick-grid">
-    <a class="quick" href="/schedule"><div class="qicon">📅</div><span>班表</span></a>
-    <a class="quick" href="/work-records"><div class="qicon">📝</div><span>工作紀錄</span></a>
-    <a class="quick" href="/tasks"><div class="qicon">✅</div><span>待辦</span></a>
-    <a class="quick" href="/finance"><div class="qicon">💰</div><span>收支</span></a>
-    <a class="quick" href="/health"><div class="qicon">⌚</div><span>健康</span></a>
-    <a class="quick" href="/cards"><div class="qicon">💳</div><span>卡片</span></a>
-    <a class="quick" href="/life"><div class="qicon">🌿</div><span>生活</span></a>
-    <a class="quick" href="/profile"><div class="qicon">⚙️</div><span>設定</span></a>
-  </div>
-</section>
+      <section class="panel shift-panel">
+        <div class="panel-title blue">◆ 今日班表</div>
+        {% if shift %}
+          <h2>{{ '太平建昌店' if shift.store_code == 'B' else '太平溪洲店' if shift.store_code == 'C' else '今天休假' }}</h2>
+          <p>{{ '晚班 15:00－23:00' if shift.shift_type == 'late' else '大夜班 23:00－07:00' if shift.shift_type == 'night' else '休假' }}</p>
+          {% if shift.shift_type != 'off' %}
+          <div class="attendance-actions">
+            <button class="web-btn success">上班簽到</button>
+            <button class="web-btn danger">下班簽退</button>
+          </div>
+          {% endif %}
+        {% else %}
+          <h2>尚未設定班表</h2>
+          <a class="web-btn primary full" href="/schedule">＋ 新增今日班表</a>
+        {% endif %}
+      </section>
 
-<section class="card">
-  <div class="section-title"><h3>今日待辦</h3><a href="/tasks" class="muted">查看全部</a></div>
-  {% for t in tasks %}<div class="mini-row"><span>○ {{ t.title }}</span><small class="muted">{{ t.due_date or '未設定日期' }}</small></div>
-  {% else %}<p class="muted">目前沒有待辦事項。</p>{% endfor %}
-</section>
+      <section class="panel progress-panel">
+        <div class="panel-title">☑ 今日工作進度</div>
+        <div class="progress-stats">
+          <div><b data-live="logs">{{ counts.work_logs }}</b><small>工作紀錄</small></div>
+          <div><b data-live="pending">{{ counts.pending_tasks }}</b><small>未完成</small></div>
+          <div><b>27%</b><small>進度</small></div>
+        </div>
+        <div class="web-progress"><i style="--value:27%"></i></div>
+      </section>
 
-<section class="card page-banner">
-  <div class="section-title"><h3>🤖 AI 小幫手</h3><small class="muted">縮小顯示</small></div>
-  <p>今天的重點已整理完成。頁面會每 15 秒自動同步最新資料。</p>
-  <div data-sync-toast style="opacity:0;transition:.25s" class="sync-pill">✨ 資料已更新</div>
-</section>
+      <section class="panel">
+        <div class="panel-title">💸 今日短收</div>
+        <div class="shortage-value" data-live="shortage">${{ counts.shortage_total }}</div>
+        <a class="outline-link" href="/work-records">＋ 登錄短收</a>
+      </section>
+
+      <section class="panel todo-panel">
+        <div class="panel-title">☑ 今日待辦</div>
+        {% for t in tasks %}
+        <div class="side-task"><span>□</span><div><b>{{ t.title }}</b><small>{{ t.due_date or '未設定時間' }}</small></div></div>
+        {% else %}
+        <p class="empty">目前沒有待辦事項</p>
+        {% endfor %}
+        <a class="outline-link" href="/tasks">＋ 新增待辦</a>
+      </section>
+    </aside>
+
+    <section class="web-center">
+      <section class="news-strip">
+        <b>📣 最新消息</b>
+        <span>班表、工作事項與提醒會在這裡同步更新。</span>
+        <small>系統時間：<span data-sync-time>--:--</span></small>
+      </section>
+
+      <section class="panel week-panel">
+        <div class="week-head">
+          <div><b>7月</b><span>班表總覽</span></div>
+          <div class="week-controls">
+            <button>‹</button><button>今天</button><button>›</button>
+            <a href="/schedule">批次設定</a>
+            <a class="primary-mini" href="/schedule">＋ 新增班表</a>
+          </div>
+        </div>
+        <div class="week-grid">
+          <div class="day active"><b>今天</b><strong>{{ today[-2:] }}</strong><span>{% if shift %}{{ '建昌' if shift.store_code == 'B' else '溪洲' if shift.store_code == 'C' else '休假' }}{% else %}未排班{% endif %}</span><small>{% if shift %}{{ '15-23' if shift.shift_type == 'late' else '23-07' if shift.shift_type == 'night' else '' }}{% endif %}</small></div>
+          <div class="day"><b>明日</b><strong>＋1</strong><span>尚未載入</span><small>—</small></div>
+          <div class="day"><b>後日</b><strong>＋2</strong><span>尚未載入</span><small>—</small></div>
+          <div class="day"><b>週末</b><strong>＋3</strong><span>尚未載入</span><small>—</small></div>
+          <div class="day"><b>下週</b><strong>＋4</strong><span>尚未載入</span><small>—</small></div>
+          <div class="day"><b>下週</b><strong>＋5</strong><span>尚未載入</span><small>—</small></div>
+          <div class="day"><b>下週</b><strong>＋6</strong><span>尚未載入</span><small>—</small></div>
+        </div>
+      </section>
+
+      <section class="panel work-list-panel">
+        <div class="work-title">
+          <div><h2>🌙 今日工作事項</h2><span>{% if shift %}{{ '大夜班' if shift.shift_type == 'night' else '晚班' if shift.shift_type == 'late' else '休假' }}{% else %}尚未建立工作流程{% endif %}</span></div>
+          <div><button class="tag-btn">加班：無</button><a class="outline-link compact" href="/work-records">編輯工作事項</a></div>
+        </div>
+
+        <div class="work-table">
+          <div class="work-row head"><span>時間</span><span>工作事項</span><span>狀態</span><span>操作</span></div>
+          <div class="work-row"><span>23:00</span><b>列管／品保／FF 廢棄</b><em class="done">已完成</em><button>🔔</button></div>
+          <div class="work-row"><span>23:10</span><b>清洗機台</b><em class="done">已完成</em><button>🔔</button></div>
+          <div class="work-row"><span>23:30</span><b>每日擦拭</b><em class="done">已完成</em><button>🔔</button></div>
+          <div class="work-row"><span>00:00</span><b>EC／代收</b><em>未完成</em><button>🔔</button></div>
+          <div class="work-row"><span>01:00</span><b>烤地瓜、霜淇淋機清潔</b><em>未完成</em><button>🔔</button></div>
+          <div class="work-row"><span>03:00</span><b>熱狗機與蒸包機預熱</b><em>未完成</em><button>🔔</button></div>
+          <div class="work-row"><span>04:00</span><b>補貨／進貨登錄</b><em>未完成</em><button>🔔</button></div>
+          <div class="work-row"><span>07:00</span><b>交接班／簽退</b><em>未完成</em><button>🔔</button></div>
+        </div>
+
+        <div class="work-footer">
+          <span>進度：3 / 8 項</span>
+          <div class="web-progress large"><i style="--value:37.5%"></i></div>
+          <b>38%</b>
+          <a href="/work-records">工作範本</a>
+          <a href="/tasks">新增事項</a>
+        </div>
+      </section>
+    </section>
+
+    <aside class="web-right">
+      <section class="panel mini-calendar">
+        <div class="mini-cal-head"><button>‹</button><b>本月</b><button>›</button></div>
+        <div class="cal-week"><span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span></div>
+        <div class="cal-days">
+          {% for n in range(1,36) %}<span class="{{ 'today' if n == 16 else '' }}">{{ n if n <= 31 else n-31 }}</span>{% endfor %}
+        </div>
+      </section>
+
+      <section class="panel weather-panel">
+        <div class="panel-title blue">🌦 太平區天氣資訊</div>
+        <div class="weather-main"><span>🌧️</span><b>26°C</b><em>小雨</em></div>
+        <div class="weather-stats"><span><b>85%</b>濕度</span><span><b>70%</b>降雨</span><span><b>28°C</b>體感</span></div>
+        <small>天氣功能介面已預留，後續再串接即時資料。</small>
+      </section>
+
+      <section class="panel push-panel">
+        <div class="panel-title green">💬 LINE 推播紀錄</div>
+        <div class="push-row"><span>03:00</span><b>工作提醒：拖地</b><em>已推播</em></div>
+        <div class="push-row"><span>01:00</span><b>工作提醒：烤地瓜</b><em>已推播</em></div>
+        <div class="push-row"><span>00:00</span><b>班表提醒</b><em>已推播</em></div>
+        <a class="outline-link" href="/notifications">查看全部紀錄</a>
+      </section>
+
+      <section class="panel">
+        <div class="panel-title">⚙ 常用功能</div>
+        <div class="quick-web-grid">
+          <a href="/schedule">⏱<span>班表設定</span></a>
+          <a href="/work-records">📝<span>工作範本</span></a>
+          <a href="/work-records">💸<span>短收登錄</span></a>
+          <a href="/tasks">☑<span>新增待辦</span></a>
+          <a href="/health">♡<span>健康紀錄</span></a>
+          <a href="/profile">⚙<span>我的設定</span></a>
+        </div>
+      </section>
+    </aside>
+  </main>
+
+  <footer class="web-footer">
+    <span>Work Life © 2026</span>
+    <span>版本：Web Phase 1｜最後更新：<span data-sync-time>--:--</span></span>
+  </footer>
 </div>
-<nav class="bottomnav">
-<a href="/dashboard" class="active"><span>🏠</span>首頁</a>
-<a href="/schedule" class=""><span>📅</span>班表</a>
-<a href="/work-records" class=""><span>💼</span>工作</a>
-<a href="/life" class=""><span>🌿</span>生活</a>
-<a href="/profile" class=""><span>👤</span>我的</a>
+
+<nav class="mobile-bottomnav">
+  <a class="active" href="/dashboard">⌂<span>首頁</span></a>
+  <a href="/schedule">▣<span>班表</span></a>
+  <a href="/work-records">✎<span>工作</span></a>
+  <a href="/tasks">☑<span>待辦</span></a>
+  <a href="/profile">⚙<span>我的</span></a>
 </nav>
-<a class="assistant" href="/notifications"><img src="/static/worklife_mascot.png" alt="AI"></a>
 <script src="/static/app.js"></script>
-</body></html>
+</body>
+</html>

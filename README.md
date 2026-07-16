@@ -19,3 +19,10 @@
 2. Commit message：`Phase2 Mobile UI Framework`
 3. Render 會自動部署。
 4. 不需要修改環境變數。
+
+
+## Web Phase 1
+- 新增 Work Life 桌面網頁版三欄工作台首頁
+- 頂部功能列、左側今日資訊、中央班表與工作清單、右側天氣與 LINE 紀錄
+- 手機寬度自動切換單欄與底部導覽列
+- 本包先完成介面，原有資料與功能保留
