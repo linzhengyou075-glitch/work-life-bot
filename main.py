@@ -1,8 +1,11 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 import asyncio
+import json
 import sqlite3
+import urllib.parse
+import urllib.request
 
 from fastapi import FastAPI, Request, Form, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
@@ -25,7 +28,65 @@ from line_api import verify_signature,reply_message,work_entry_flex,push_message
 
 BASE_DIR = Path(__file__).resolve().parent
 
-app=FastAPI(title="Work Life",version="4.0.1")
+_WEATHER_CACHE = {"at": None, "data": None}
+
+WEATHER_CODES = {
+    0:("☀️","晴朗"),1:("🌤️","大致晴朗"),2:("⛅","局部多雲"),3:("☁️","陰天"),
+    45:("🌫️","有霧"),48:("🌫️","霧淞"),51:("🌦️","毛毛雨"),53:("🌦️","毛毛雨"),55:("🌧️","較強毛毛雨"),
+    61:("🌦️","小雨"),63:("🌧️","中雨"),65:("🌧️","大雨"),66:("🌨️","凍雨"),67:("🌨️","強凍雨"),
+    71:("🌨️","小雪"),73:("🌨️","中雪"),75:("❄️","大雪"),77:("🌨️","霰"),
+    80:("🌦️","陣雨"),81:("🌧️","較強陣雨"),82:("⛈️","強陣雨"),85:("🌨️","陣雪"),86:("❄️","強陣雪"),
+    95:("⛈️","雷雨"),96:("⛈️","雷雨伴冰雹"),99:("⛈️","強雷雨伴冰雹")
+}
+
+def get_taiping_weather():
+    now=datetime.now()
+    cached_at=_WEATHER_CACHE.get("at")
+    if cached_at and _WEATHER_CACHE.get("data") and (now-cached_at).total_seconds()<900:
+        return _WEATHER_CACHE["data"]
+    params=urllib.parse.urlencode({
+        "latitude":24.1271,"longitude":120.7189,"timezone":"Asia/Taipei",
+        "current":"temperature_2m,apparent_temperature,weather_code,wind_speed_10m",
+        "hourly":"precipitation_probability","forecast_days":1
+    })
+    try:
+        req=urllib.request.Request("https://api.open-meteo.com/v1/forecast?"+params,headers={"User-Agent":"WorkLife/4.1"})
+        with urllib.request.urlopen(req,timeout=4) as response:
+            payload=json.load(response)
+        current=payload.get("current") or {}
+        code=int(current.get("weather_code",3))
+        icon,text=WEATHER_CODES.get(code,("🌤️","天氣資訊"))
+        probability=0
+        hourly=payload.get("hourly") or {}
+        times=hourly.get("time") or []
+        probs=hourly.get("precipitation_probability") or []
+        target=(current.get("time") or "")[:13]
+        for i,t in enumerate(times):
+            if str(t).startswith(target) and i<len(probs):
+                probability=probs[i] or 0; break
+        data={"ok":True,"icon":icon,"text":text,"temperature":round(float(current.get("temperature_2m",0))),
+              "apparent":round(float(current.get("apparent_temperature",0))),"rain":int(probability),
+              "wind":round(float(current.get("wind_speed_10m",0)),1),"location":"台中太平"}
+        _WEATHER_CACHE.update(at=now,data=data)
+        return data
+    except Exception:
+        stale=_WEATHER_CACHE.get("data")
+        if stale: return stale
+        return {"ok":False,"icon":"🌤️","text":"暫時無法取得","temperature":"--","apparent":"--","rain":"--","wind":"--","location":"台中太平"}
+
+def week_schedule(anchor=None):
+    anchor=anchor or date.today()
+    start=anchor-timedelta(days=anchor.weekday())
+    labels="一二三四五六日"
+    output=[]
+    for i in range(7):
+        day=start+timedelta(days=i)
+        shift=get_shift(day.isoformat())
+        output.append({"date":day.isoformat(),"day":day.day,"weekday":labels[i],"today":day==anchor,"shift":dict(shift) if shift else None})
+    return output
+
+
+app=FastAPI(title="Work Life",version="4.1.0")
 app.add_middleware(
     SessionMiddleware,
     secret_key=settings.session_secret,
@@ -81,7 +142,7 @@ def protected(request,path):
 
 @app.get("/healthz")
 def healthz():
-    return {"status":"ok","version":"4.0.1","line_login_ready":settings.line_login_ready}
+    return {"status":"ok","version":"4.1.0","line_login_ready":settings.line_login_ready}
 
 @app.get("/")
 def root(request:Request):
@@ -141,6 +202,10 @@ def dashboard(request:Request):
         "tasks":list_tasks(False)[:5],
         "reminders":[x for x in list_reminders(False) if x["remind_date"]==today],
         "counts":dashboard_counts(today),
+        "weather":get_taiping_weather(),
+        "week_days":week_schedule(),
+        "now_text":datetime.now().strftime("%Y/%m/%d %H:%M"),
+        "today_label":datetime.now().strftime("%m月%d日"),
     })
 
 @app.get("/quick-schedule",response_class=HTMLResponse)
@@ -171,33 +236,53 @@ def schedule_delete(request:Request,work_date:str=Form(...)):
     delete_shift(work_date)
     return RedirectResponse("/quick-schedule?deleted=1",303)
 
-def parse_excel(content:bytes):
-    wb=load_workbook(BytesIO(content),data_only=True)
-    types={x["name"]:x for x in list_shift_types()}
-    rows=[];errors=[]
+def parse_excel(content:bytes, filename:str=""):
+    """讀取 Work Life 班表，支援 .xlsx 與含巨集的 .xlsm。"""
+    try:
+        wb=load_workbook(
+            BytesIO(content),
+            data_only=True,
+            keep_vba=filename.lower().endswith(".xlsm")
+        )
+    except Exception as exc:
+        raise ValueError("Excel 檔案無法開啟，請確認檔案未損壞，且格式為 .xlsx 或 .xlsm。") from exc
+
+    types={str(x["name"]).strip():x for x in list_shift_types()}
+    rows=[];errors=[];matched_sheets=0
     for ws in wb.worksheets:
-        if "月班表" not in ws.title: continue
-        for row_no in range(5,ws.max_row+1):
+        if "月班表" not in ws.title:
+            continue
+        matched_sheets+=1
+        for row_no in range(5,(ws.max_row or 4)+1):
             raw_date=ws.cell(row_no,1).value
             shift_name=str(ws.cell(row_no,3).value or "").strip()
-            if not raw_date or not shift_name: continue
+            if not raw_date or not shift_name:
+                continue
             if hasattr(raw_date,"strftime"):
                 work_date=raw_date.strftime("%Y-%m-%d")
             else:
-                try: work_date=date.fromisoformat(str(raw_date).strip().replace("/","-")[:10]).isoformat()
+                raw_text=str(raw_date).strip().replace("/","-")
+                try:
+                    work_date=date.fromisoformat(raw_text[:10]).isoformat()
                 except Exception:
                     errors.append(f"{ws.title} 第{row_no}列日期無法讀取")
                     continue
             if shift_name not in types:
                 errors.append(f"{ws.title} 第{row_no}列班別不存在：{shift_name}")
                 continue
-            overtime=str(ws.cell(row_no,4).value or "否").strip()=="是"
+            overtime_text=str(ws.cell(row_no,4).value or "否").strip().lower()
+            overtime=overtime_text in {"是","yes","y","true","1"}
             overtime_end=str(ws.cell(row_no,5).value or "").strip()
             note=str(ws.cell(row_no,6).value or "").strip()
             rows.append({
-                "work_date":work_date,"shift_type_id":types[shift_name]["id"],
-                "overtime":overtime,"overtime_end":overtime_end,"note":note
+                "work_date":work_date,
+                "shift_type_id":types[shift_name]["id"],
+                "overtime":overtime,
+                "overtime_end":overtime_end,
+                "note":note
             })
+    if matched_sheets==0:
+        raise ValueError("找不到『月班表』工作表，請使用 Work Life 班表範本。")
     return rows,errors
 
 @app.post("/quick-schedule/upload",response_class=HTMLResponse)
@@ -205,10 +290,28 @@ async def excel_upload(request:Request,file:UploadFile=File(...),overwrite:str=F
     user,resp=protected(request,"/quick-schedule")
     if resp:return resp
     context={"request":request,"user":user,"shifts":list_shifts(),"shift_types":list_shift_types()}
-    if not file.filename.lower().endswith(".xlsx"):
-        context["upload_error"]="請上傳 Excel 班表檔。"
+    filename=(file.filename or "").strip()
+    if not filename.lower().endswith((".xlsx",".xlsm")):
+        context["upload_error"]="請上傳 .xlsx 或 .xlsm 格式的 Excel 班表。"
         return templates.TemplateResponse("schedule.html",context,status_code=400)
-    rows,errors=parse_excel(await file.read())
+    content=await file.read()
+    if not content:
+        context["upload_error"]="上傳的 Excel 檔案是空的，請重新選擇檔案。"
+        return templates.TemplateResponse("schedule.html",context,status_code=400)
+    if len(content)>10*1024*1024:
+        context["upload_error"]="Excel 檔案超過 10MB，請縮小檔案後再上傳。"
+        return templates.TemplateResponse("schedule.html",context,status_code=400)
+    try:
+        rows,errors=parse_excel(content,filename)
+    except ValueError as exc:
+        context["upload_error"]=str(exc)
+        return templates.TemplateResponse("schedule.html",context,status_code=400)
+    if not rows:
+        context["upload_error"]="班表內沒有可匯入的資料，請先在班別欄選擇班別。"
+        if errors:
+            context["upload_error"] += " " + "、".join(errors[:8])
+        return templates.TemplateResponse("schedule.html",context,status_code=400)
+
     existing={x["work_date"] for x in list_shifts()}
     imported=0;skipped=0
     for row in rows:
@@ -217,6 +320,7 @@ async def excel_upload(request:Request,file:UploadFile=File(...),overwrite:str=F
             continue
         save_shift(row["work_date"],row["shift_type_id"],row["overtime"],row["overtime_end"],False,row["note"])
         imported+=1
+        existing.add(row["work_date"])
     context.update({"shifts":list_shifts(),"upload_result":{"imported":imported,"skipped":skipped,"errors":errors}})
     return templates.TemplateResponse("schedule.html",context)
 
