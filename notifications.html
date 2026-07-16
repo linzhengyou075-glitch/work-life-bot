@@ -1,15 +1,47 @@
-<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/style.css"><title>通知中心</title></head><body>
-<div class="shell"><header class="topbar"><div><div class="brand">通知中心</div><div class="subtitle">AI 提醒與同步狀態</div></div><a class="icon-btn" href="/dashboard">⌂</a></header>
-<section class="card hero"><div class="hero-grid"><div><h2>Work Life 小幫手</h2><p>提醒會以 LINE 名片式卡片推送給你。</p></div><img class="mascot" src="/static/worklife_mascot.png"></div></section>
-<section class="card"><div class="list-row"><div><strong>🌙 今日班表</strong><div class="muted">大夜班・溪洲店</div></div><small>剛剛</small></div><div class="list-row"><div><strong>✅ 待辦提醒</strong><div class="muted">今天還有 2 件事項</div></div><small>16:30</small></div></section>
-</div>
-<nav class="bottomnav">
-<a href="/dashboard" class="active"><span>🏠</span>首頁</a>
-<a href="/schedule" class=""><span>📅</span>班表</a>
-<a href="/work-records" class=""><span>💼</span>工作</a>
-<a href="/life" class=""><span>🌿</span>生活</a>
-<a href="/profile" class=""><span>👤</span>我的</a>
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/style.css"><title>提醒中心</title></head><body class="web-dashboard-body"><div class="web-app">
+<header class="web-header">
+<a class="web-logo" href="/dashboard"><img src="/static/worklife_mascot.png"><div><b>Work Life</b><small>LINE 推播與首頁輪播</small></div></a>
+<nav class="web-topnav">
+<a href="/dashboard"><span>⌂</span>首頁</a>
+<a href="/schedule"><span>▣</span>班表</a>
+<a href="/work-records"><span>✎</span>工作</a>
+<a href="/finance"><span>＄</span>收支</a>
+<a href="/health"><span>♡</span>健康</a>
+<a href="/notifications"><span>🔔</span>提醒</a>
+<a href="/profile"><span>⚙</span>設定</a>
 </nav>
-<a class="assistant" href="/notifications"><img src="/static/worklife_mascot.png" alt="AI"></a>
+<div class="web-user"><img src="{ user.pictureUrl or '/static/worklife_mascot.png' }"><b>{ user.displayName }</b></div>
+</header>
+<main class="content-page">
+<div class="page-heading"><div><h1>提醒中心</h1><p>LINE 私訊推播，每個提醒只發送一次。</p></div><a class="web-btn primary" href="/dashboard">返回首頁</a></div>
+<div class="content-grid-2">
+<section class="panel">
+<div class="panel-title blue">新增提醒</div>
+<form method="post" action="/reminders">
+<label>提醒名稱<input name="title" required placeholder="例如：記得登錄今日步數"></label>
+<div class="grid"><label>類型<select name="reminder_type"><option value="work">工作事項</option><option value="todo">待辦</option><option value="weather">天氣</option><option value="health">健康</option><option value="life">生活</option><option value="custom">自訂</option></select></label><label>開啟頁面<select name="related_url"><option value="/dashboard">首頁</option><option value="/work-records">工作</option><option value="/tasks">待辦</option><option value="/health">健康</option><option value="/life">生活</option></select></label></div>
+<div class="grid"><label>日期<input type="date" name="remind_date" value="{{ today }}" required></label><label>時間<input type="time" name="remind_time" required></label></div>
+<label>內容<textarea name="note" rows="3"></textarea></label>
+<label class="check-row"><input type="checkbox" name="line_push" value="1" checked> LINE 私訊推播</label>
+<label class="check-row"><input type="checkbox" name="show_carousel" value="1" checked> 顯示在首頁輪播</label>
+<button class="web-btn primary full">儲存提醒</button>
+</form>
+</section>
+<section class="panel">
+<div class="panel-title green">提醒清單</div>
+{% for r in reminders %}
+<div class="reminder-row {{ 'completed' if r.is_done else '' }}"><div><b>{{ r.title }}</b><small>{{ r.remind_date }} {{ r.remind_time }}・{{ r.reminder_type }}</small><p>{{ r.note }}</p></div><div class="reminder-actions">{% if not r.is_done %}<form method="post" action="/reminders/{{ r.id }}/complete"><button class="web-btn success">完成</button></form>{% endif %}<form method="post" action="/reminders/{{ r.id }}/delete"><button class="web-btn danger">刪除</button></form></div></div>
+{% else %}<p class="muted">目前沒有提醒。</p>{% endfor %}
+</section>
+</div>
+<section class="panel"><div class="panel-title">LINE 推播紀錄</div>{% for log in logs %}<div class="push-row"><span>{{ log.sent_at[11:16] }}</span><b>{{ log.title }}</b><em>{{ '已推播' if log.status == 'sent' else '失敗' }}</em></div>{% else %}<p class="muted">尚無推播紀錄。</p>{% endfor %}</section>
+</main></div>
+<nav class="mobile-bottomnav">
+<a href="/dashboard">⌂<span>首頁</span></a>
+<a href="/schedule">▣<span>班表</span></a>
+<a href="/work-records">✎<span>工作</span></a>
+<a href="/life">🌿<span>生活</span></a>
+<a href="/profile">⚙<span>我的</span></a>
+</nav>
 <script src="/static/app.js"></script>
 </body></html>

@@ -1,16 +1,33 @@
-<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/style.css"><title>生活中心</title></head><body>
-<div class="shell"><header class="topbar"><div><div class="brand">生活中心</div><div class="subtitle">記帳・日常・生活小記</div></div><a class="icon-btn" href="/dashboard">⌂</a></header>
-<section class="card hero"><div class="hero-grid"><div><h2>工作之外，也照顧生活</h2><p>把支出、生活小記、重要日子放在一起。</p></div><img class="mascot" src="/static/worklife_mascot.png"></div></section>
-<div class="grid"><a class="card metric pink" href="/finance"><div class="icon">💰</div><small class="muted">收支紀錄</small><strong>本月摘要</strong></a><a class="card metric blue" href="/health"><div class="icon">⌚</div><small class="muted">健康紀錄</small><strong>Fitbit</strong></a></div>
-<section class="card"><div class="section-title"><h3>生活小記</h3><span>🌿</span></div><div class="list-row"><span>今天的心情</span><span>😊</span></div><div class="list-row"><span>喝水目標</span><span>5 / 8 杯</span></div><div class="progress"><i style="--value:62%"></i></div></section>
-</div>
-<nav class="bottomnav">
-<a href="/dashboard" class=""><span>🏠</span>首頁</a>
-<a href="/schedule" class=""><span>📅</span>班表</a>
-<a href="/work-records" class=""><span>💼</span>工作</a>
-<a href="/life" class="active"><span>🌿</span>生活</a>
-<a href="/profile" class=""><span>👤</span>我的</a>
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/style.css"><title>生活中心</title></head><body class="web-dashboard-body"><div class="web-app">
+<header class="web-header">
+<a class="web-logo" href="/dashboard"><img src="/static/worklife_mascot.png"><div><b>Work Life</b><small>工作之外也好好生活</small></div></a>
+<nav class="web-topnav">
+<a href="/dashboard"><span>⌂</span>首頁</a>
+<a href="/schedule"><span>▣</span>班表</a>
+<a href="/work-records"><span>✎</span>工作</a>
+<a href="/finance"><span>＄</span>收支</a>
+<a href="/health"><span>♡</span>健康</a>
+<a href="/notifications"><span>🔔</span>提醒</a>
+<a href="/profile"><span>⚙</span>設定</a>
 </nav>
-<a class="assistant" href="/notifications"><img src="/static/worklife_mascot.png" alt="AI"></a>
+<div class="web-user"><img src="{ user.pictureUrl or '/static/worklife_mascot.png' }"><b>{ user.displayName }</b></div>
+</header>
+<main class="content-page">
+<div class="page-heading"><div><h1>生活中心</h1><p>健康、收支、卡片與生活提醒集中管理。</p></div></div>
+<div class="life-launch-grid">
+<a class="panel life-launch" href="/health"><span>♡</span><h2>健康紀錄</h2><p>步數、睡眠、喝水、心率</p></a>
+<a class="panel life-launch" href="/finance"><span>＄</span><h2>生活收支</h2><p>收入、支出與生活紀錄</p></a>
+<a class="panel life-launch" href="/cards"><span>💳</span><h2>我的卡片</h2><p>員工、會員與載具條碼</p></a>
+<a class="panel life-launch" href="/notifications"><span>🔔</span><h2>生活提醒</h2><p>LINE 推播與首頁輪播</p></a>
+</div>
+<section class="panel"><div class="panel-title">今天的提醒</div>{% for r in reminders %}<div class="list-row"><div><b>{{ r.title }}</b><small>{{ r.remind_date }} {{ r.remind_time }}</small></div><span>{{ r.reminder_type }}</span></div>{% else %}<p class="muted">今天沒有生活提醒。</p>{% endfor %}</section>
+</main></div>
+<nav class="mobile-bottomnav">
+<a href="/dashboard">⌂<span>首頁</span></a>
+<a href="/schedule">▣<span>班表</span></a>
+<a href="/work-records">✎<span>工作</span></a>
+<a href="/life">🌿<span>生活</span></a>
+<a href="/profile">⚙<span>我的</span></a>
+</nav>
 <script src="/static/app.js"></script>
 </body></html>

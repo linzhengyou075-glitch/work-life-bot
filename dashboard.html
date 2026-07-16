@@ -47,8 +47,8 @@
           <p>{{ '晚班 15:00－23:00' if shift.shift_type == 'late' else '大夜班 23:00－07:00' if shift.shift_type == 'night' else '休假' }}</p>
           {% if shift.shift_type != 'off' %}
           <div class="attendance-actions">
-            <button class="web-btn success">上班簽到</button>
-            <button class="web-btn danger">下班簽退</button>
+            <form method="post" action="/attendance/check-in"><input type="hidden" name="work_date" value="{{ today }}"><button class="web-btn success">上班簽到</button></form>
+            <form method="post" action="/attendance/check-out"><input type="hidden" name="work_date" value="{{ today }}"><button class="web-btn danger">下班簽退</button></form>
           </div>
           {% endif %}
         {% else %}
@@ -91,6 +91,72 @@
         <small>系統時間：<span data-sync-time>--:--</span></small>
       </section>
 
+
+<section class="hero-carousel" data-carousel>
+  <div class="carousel-track">
+<article class="carousel-slide reminders-slide">
+            <div>
+              <span class="carousel-kicker">🔔 今日提醒</span>
+              {% if reminders %}
+              <h2>{{ reminders[0].title }}</h2>
+              <p>{{ reminders[0].remind_time }}・{{ reminders[0].note or '請查看提醒中心' }}</p>
+              {% else %}
+              <h2>今天沒有待處理提醒</h2>
+              <p>新提醒會自動加入首頁輪播並依設定推送 LINE。</p>
+              {% endif %}
+            </div>
+            <img src="/static/worklife_mascot.png" alt="提醒">
+          </article>
+
+    <article class="carousel-slide is-active shift-slide">
+      <div>
+        <span class="carousel-kicker">📅 今日班表</span>
+        {% if shift %}
+        <h2>{{ '太平建昌店' if shift.store_code == 'B' else '太平溪洲店' if shift.store_code == 'C' else '今天休假' }}</h2>
+        <p>{{ '晚班 15:00－23:00' if shift.shift_type == 'late' else '大夜班 23:00－07:00' if shift.shift_type == 'night' else '今天好好休息' }}</p>
+        {% else %}
+        <h2>今天尚未設定班表</h2>
+        <p>到班表頁設定後，首頁會立即同步更新。</p>
+        {% endif %}
+      </div>
+      <img src="/static/worklife_mascot.png" alt="Work Life">
+    </article>
+
+    <article class="carousel-slide work-slide">
+      <div>
+        <span class="carousel-kicker">💼 工作提醒</span>
+        <h2>尚有 {{ counts.pending_tasks }} 件待辦</h2>
+        <p>工作事項只推播一次，未完成內容會保留在首頁輪播。</p>
+      </div>
+      <div class="carousel-progress"><i style="--value:38%"></i></div>
+    </article>
+
+    <article class="carousel-slide weather-slide">
+      <div>
+        <span class="carousel-kicker">🌦️ 天氣更新</span>
+        <h2>台中太平・天氣資訊</h2>
+        <p>即時天氣介面已保留，後續串接後會自動更新。</p>
+      </div>
+      <div class="weather-orb">26°</div>
+    </article>
+
+    <article class="carousel-slide life-slide">
+      <div>
+        <span class="carousel-kicker">🌿 生活提醒</span>
+        <h2>工作之外，也照顧自己</h2>
+        <p>健康、喝水、睡眠與生活待辦會一起同步顯示。</p>
+      </div>
+      <img src="/static/worklife_mascot.png" alt="AI">
+    </article>
+  </div>
+  <div class="carousel-dots">
+    <button class="is-active" aria-label="第1張"></button>
+    <button aria-label="第2張"></button>
+    <button aria-label="第3張"></button>
+    <button aria-label="第4張"></button>
+  </div>
+</section>
+
       <section class="panel week-panel">
         <div class="week-head">
           <div><b>7月</b><span>班表總覽</span></div>
@@ -119,14 +185,9 @@
 
         <div class="work-table">
           <div class="work-row head"><span>時間</span><span>工作事項</span><span>狀態</span><span>操作</span></div>
-          <div class="work-row"><span>23:00</span><b>列管／品保／FF 廢棄</b><em class="done">已完成</em><button>🔔</button></div>
-          <div class="work-row"><span>23:10</span><b>清洗機台</b><em class="done">已完成</em><button>🔔</button></div>
-          <div class="work-row"><span>23:30</span><b>每日擦拭</b><em class="done">已完成</em><button>🔔</button></div>
-          <div class="work-row"><span>00:00</span><b>EC／代收</b><em>未完成</em><button>🔔</button></div>
-          <div class="work-row"><span>01:00</span><b>烤地瓜、霜淇淋機清潔</b><em>未完成</em><button>🔔</button></div>
-          <div class="work-row"><span>03:00</span><b>熱狗機與蒸包機預熱</b><em>未完成</em><button>🔔</button></div>
-          <div class="work-row"><span>04:00</span><b>補貨／進貨登錄</b><em>未完成</em><button>🔔</button></div>
-          <div class="work-row"><span>07:00</span><b>交接班／簽退</b><em>未完成</em><button>🔔</button></div>
+          {% for item in daily_work %}
+          <div class="work-row"><span>{{ item.scheduled_time or '--:--' }}</span><b>{{ item.title }}</b><em class="{{ 'done' if item.is_done else '' }}">{{ '已完成' if item.is_done else '未完成' }}</em><form method="post" action="/daily-work/{{ item.id }}/toggle"><input type="hidden" name="work_date" value="{{ today }}"><button>{{ '↩' if item.is_done else '✓' }}</button></form></div>
+          {% else %}<p class="empty" style="padding:20px">今天尚未建立工作事項，請先設定班表。</p>{% endfor %}
         </div>
 
         <div class="work-footer">
@@ -150,9 +211,9 @@
 
       <section class="panel weather-panel">
         <div class="panel-title blue">🌦 太平區天氣資訊</div>
-        <div class="weather-main"><span>🌧️</span><b>26°C</b><em>小雨</em></div>
-        <div class="weather-stats"><span><b>85%</b>濕度</span><span><b>70%</b>降雨</span><span><b>28°C</b>體感</span></div>
-        <small>天氣功能介面已預留，後續再串接即時資料。</small>
+        <div class="weather-main"><span>🌦️</span><b data-weather-temp>{{ weather.temperature if weather.temperature is not none else '--' }}°C</b><em>即時更新</em></div>
+        <div class="weather-stats"><span><b data-weather-rain>{{ weather.rain_probability if weather.rain_probability is not none else '--' }}%</b>降雨</span><span><b>{{ weather.wind if weather.wind is not none else '--' }}</b>風速</span><span><b>{{ weather.apparent if weather.apparent is not none else '--' }}°C</b>體感</span></div>
+        <small>資料約每 15 秒於頁面重新確認。</small>
       </section>
 
       <section class="panel push-panel">

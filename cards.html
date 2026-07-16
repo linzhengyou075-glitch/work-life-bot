@@ -1,16 +1,31 @@
-<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/style.css"><title>我的卡片</title></head><body>
-<div class="shell"><header class="topbar"><div><div class="brand">我的卡片</div><div class="subtitle">會員・員工・手機載具</div></div><a class="icon-btn" href="/dashboard">⌂</a></header>
-<section class="card"><div class="section-title"><h3>員工條碼</h3><span>👷</span></div><div class="barcode-box"></div><button class="btn">全螢幕顯示</button></section>
-<section class="card"><div class="section-title"><h3>會員條碼</h3><span>💳</span></div><div class="barcode-box"></div><button class="btn">全螢幕顯示</button></section>
-<section class="card"><div class="section-title"><h3>手機載具</h3><span>🧾</span></div><div class="barcode-box"></div><button class="btn">全螢幕顯示</button></section>
-</div>
-<nav class="bottomnav">
-<a href="/dashboard" class=""><span>🏠</span>首頁</a>
-<a href="/schedule" class=""><span>📅</span>班表</a>
-<a href="/work-records" class=""><span>💼</span>工作</a>
-<a href="/life" class="active"><span>🌿</span>生活</a>
-<a href="/profile" class=""><span>👤</span>我的</a>
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/style.css"><title>我的卡片</title></head><body class="web-dashboard-body"><div class="web-app">
+<header class="web-header">
+<a class="web-logo" href="/dashboard"><img src="/static/worklife_mascot.png"><div><b>Work Life</b><small>會員・員工・載具</small></div></a>
+<nav class="web-topnav">
+<a href="/dashboard"><span>⌂</span>首頁</a>
+<a href="/schedule"><span>▣</span>班表</a>
+<a href="/work-records"><span>✎</span>工作</a>
+<a href="/finance"><span>＄</span>收支</a>
+<a href="/health"><span>♡</span>健康</a>
+<a href="/notifications"><span>🔔</span>提醒</a>
+<a href="/profile"><span>⚙</span>設定</a>
 </nav>
-<a class="assistant" href="/notifications"><img src="/static/worklife_mascot.png" alt="AI"></a>
+<div class="web-user"><img src="{ user.pictureUrl or '/static/worklife_mascot.png' }"><b>{ user.displayName }</b></div>
+</header>
+<main class="content-page">
+<div class="page-heading"><div><h1>我的卡片</h1><p>員工條碼、會員條碼與手機載具。</p></div></div>
+{% if request.query_params.get('saved') %}<div class="notice">✅ 卡片資料已儲存</div>{% endif %}
+<div class="cards-layout">
+<section class="panel"><div class="panel-title blue">新增／修改卡片</div><form method="post" action="/cards"><label>卡片類型<select name="card_type"><option value="employee">員工條碼</option><option value="member">會員條碼</option><option value="carrier">手機載具</option><option value="other">其他</option></select></label><label>顯示名稱<input name="label" required></label><label>條碼內容<input name="barcode_value" required></label><label>備註<textarea name="note"></textarea></label><button class="web-btn primary full">儲存卡片</button></form></section>
+<section class="card-preview-grid">{% for c in cards %}<article class="panel barcode-card"><div class="section-title"><h3>{{ c.label }}</h3><span>💳</span></div><div class="barcode-value" data-barcode="{{ c.barcode_value }}">{{ c.barcode_value }}</div><p>{{ c.note }}</p><button class="web-btn primary full" onclick="this.closest('.barcode-card').classList.toggle('fullscreen-card')">放大顯示</button></article>{% else %}<div class="panel placeholder"><img src="/static/worklife_mascot.png"><h2>尚未加入卡片</h2></div>{% endfor %}</section>
+</div>
+</main></div>
+<nav class="mobile-bottomnav">
+<a href="/dashboard">⌂<span>首頁</span></a>
+<a href="/schedule">▣<span>班表</span></a>
+<a href="/work-records">✎<span>工作</span></a>
+<a href="/life">🌿<span>生活</span></a>
+<a href="/profile">⚙<span>我的</span></a>
+</nav>
 <script src="/static/app.js"></script>
 </body></html>

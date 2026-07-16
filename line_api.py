@@ -57,3 +57,57 @@ def work_entry_flex():
             },
         },
     }
+
+
+def push_message(user_id, messages):
+    if not settings.line_channel_access_token or not user_id:
+        return False
+    response = requests.post(
+        "https://api.line.me/v2/bot/message/push",
+        headers={
+            "Authorization": f"Bearer {settings.line_channel_access_token}",
+            "Content-Type": "application/json",
+        },
+        json={"to": user_id, "messages": messages},
+        timeout=15,
+    )
+    response.raise_for_status()
+    return True
+
+def reminder_flex(title, content, url):
+    return {
+        "type": "flex",
+        "altText": title,
+        "contents": {
+            "type": "bubble",
+            "header": {
+                "type": "box",
+                "layout": "vertical",
+                "backgroundColor": "#EAE6FF",
+                "contents": [
+                    {"type": "text", "text": "🤖 Work Life 提醒", "weight": "bold", "color": "#5649A8"}
+                ],
+            },
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "spacing": "md",
+                "contents": [
+                    {"type": "text", "text": title, "weight": "bold", "size": "xl", "wrap": True, "color": "#2D2851"},
+                    {"type": "text", "text": content or "請查看 Work Life。", "wrap": True, "color": "#6C657E"},
+                ],
+            },
+            "footer": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [
+                    {
+                        "type": "button",
+                        "style": "primary",
+                        "color": "#8069E7",
+                        "action": {"type": "uri", "label": "開啟 Work Life", "uri": url},
+                    }
+                ],
+            },
+        },
+    }

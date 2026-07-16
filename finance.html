@@ -1,16 +1,32 @@
-<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/style.css"><title>收支管理</title></head><body>
-<div class="shell"><header class="topbar"><div><div class="brand">收支管理</div><div class="subtitle">收入・支出・發票</div></div><a class="icon-btn" href="/dashboard">⌂</a></header>
-<div class="grid"><div class="card metric mint"><div class="icon">↙️</div><small class="muted">本月收入</small><strong>$38,560</strong></div><div class="card metric pink"><div class="icon">↗️</div><small class="muted">本月支出</small><strong>$12,680</strong></div></div>
-<section class="card"><div class="section-title"><h3>最近紀錄</h3><span>🧾</span></div><div class="list-row"><div><strong>午餐</strong><div class="muted">餐飲</div></div><strong>-$120</strong></div><div class="list-row"><div><strong>薪資</strong><div class="muted">收入</div></div><strong>+$38,560</strong></div></section>
-<section class="card placeholder"><img src="/static/worklife_mascot.png"><h2>發票自動同步</h2><p class="muted">介面先完成，載具串接放在後續功能階段。</p></section>
-</div>
-<nav class="bottomnav">
-<a href="/dashboard" class=""><span>🏠</span>首頁</a>
-<a href="/schedule" class=""><span>📅</span>班表</a>
-<a href="/work-records" class=""><span>💼</span>工作</a>
-<a href="/life" class="active"><span>🌿</span>生活</a>
-<a href="/profile" class=""><span>👤</span>我的</a>
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/style.css"><title>生活收支</title></head><body class="web-dashboard-body"><div class="web-app">
+<header class="web-header">
+<a class="web-logo" href="/dashboard"><img src="/static/worklife_mascot.png"><div><b>Work Life</b><small>收入・支出・生活紀錄</small></div></a>
+<nav class="web-topnav">
+<a href="/dashboard"><span>⌂</span>首頁</a>
+<a href="/schedule"><span>▣</span>班表</a>
+<a href="/work-records"><span>✎</span>工作</a>
+<a href="/finance"><span>＄</span>收支</a>
+<a href="/health"><span>♡</span>健康</a>
+<a href="/notifications"><span>🔔</span>提醒</a>
+<a href="/profile"><span>⚙</span>設定</a>
 </nav>
-<a class="assistant" href="/notifications"><img src="/static/worklife_mascot.png" alt="AI"></a>
+<div class="web-user"><img src="{ user.pictureUrl or '/static/worklife_mascot.png' }"><b>{ user.displayName }</b></div>
+</header>
+<main class="content-page">
+<div class="page-heading"><div><h1>生活收支</h1><p>工作以外的收入、支出與生活紀錄。</p></div></div>
+{% if request.query_params.get('saved') %}<div class="notice">✅ 收支已儲存</div>{% endif %}
+<div class="summary-cards"><div class="panel income-card"><span>本月收入</span><b>${{ summary.income }}</b></div><div class="panel expense-card"><span>本月支出</span><b>${{ summary.expense }}</b></div><div class="panel balance-card"><span>本月結餘</span><b>${{ summary.income-summary.expense }}</b></div></div>
+<div class="content-grid-2">
+<section class="panel"><div class="panel-title blue">新增收支</div><form method="post" action="/finance"><label>日期<input type="date" name="record_date" value="{{ today }}" required></label><div class="grid"><label>類型<select name="record_type"><option value="expense">支出</option><option value="income">收入</option></select></label><label>分類<select name="category"><option>餐飲</option><option>交通</option><option>購物</option><option>帳單</option><option>薪資</option><option>其他</option></select></label></div><label>名稱<input name="title" required></label><label>金額<input type="number" min="0" name="amount" required></label><label>備註<textarea name="note"></textarea></label><button class="web-btn primary full">儲存</button></form></section>
+<section class="panel"><div class="panel-title green">最近紀錄</div>{% for r in records %}<div class="finance-row"><div><b>{{ r.title }}</b><small>{{ r.record_date }}・{{ r.category }}</small></div><strong class="{{ r.record_type }}">{{ '+' if r.record_type=='income' else '-' }}${{ r.amount }}</strong><form method="post" action="/finance/{{ r.id }}/delete"><button>×</button></form></div>{% else %}<p class="muted">尚無收支紀錄。</p>{% endfor %}</section>
+</div>
+</main></div>
+<nav class="mobile-bottomnav">
+<a href="/dashboard">⌂<span>首頁</span></a>
+<a href="/schedule">▣<span>班表</span></a>
+<a href="/work-records">✎<span>工作</span></a>
+<a href="/life">🌿<span>生活</span></a>
+<a href="/profile">⚙<span>我的</span></a>
+</nav>
 <script src="/static/app.js"></script>
 </body></html>

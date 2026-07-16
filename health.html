@@ -1,16 +1,56 @@
-<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/style.css"><title>健康紀錄</title></head><body>
-<div class="shell"><header class="topbar"><div><div class="brand">健康紀錄</div><div class="subtitle">Fitbit 自動同步介面</div></div><a class="icon-btn" href="/dashboard">⌂</a></header>
-<section class="card hero"><div class="section-title"><div><h2>今日健康</h2><div class="sync-pill"><i class="sync-dot"></i>Fitbit 尚未連結</div></div><button class="btn">連結 Fitbit</button></div></section>
-<div class="grid"><div class="card metric blue"><div class="icon">👟</div><small class="muted">今日步數</small><strong><span data-count="8420">0</span></strong><div class="progress"><i style="--value:72%"></i></div></div><div class="card metric pink"><div class="icon">❤️</div><small class="muted">平均心率</small><strong>78 bpm</strong><div class="progress"><i style="--value:58%"></i></div></div><div class="card metric purple"><div class="icon">😴</div><small class="muted">睡眠</small><strong>6 小時 32 分</strong><div class="progress"><i style="--value:66%"></i></div></div><div class="card metric mint"><div class="icon">🔥</div><small class="muted">消耗熱量</small><strong>1,860</strong><div class="progress"><i style="--value:74%"></i></div></div></div>
-<section class="card"><div class="section-title"><h3>同步狀態</h3><small class="muted">最後同步 --:--</small></div><div class="progress"><i style="--value:0%"></i></div><p class="muted">Fitbit OAuth 與資料同步將在後續功能階段串接。</p></section>
-</div>
-<nav class="bottomnav">
-<a href="/dashboard" class=""><span>🏠</span>首頁</a>
-<a href="/schedule" class=""><span>📅</span>班表</a>
-<a href="/work-records" class=""><span>💼</span>工作</a>
-<a href="/life" class="active"><span>🌿</span>生活</a>
-<a href="/profile" class=""><span>👤</span>我的</a>
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/style.css"><title>健康紀錄</title></head><body class="web-dashboard-body"><div class="web-app">
+<header class="web-header">
+<a class="web-logo" href="/dashboard"><img src="/static/worklife_mascot.png"><div><b>Work Life</b><small>手動健康資料與提醒</small></div></a>
+<nav class="web-topnav">
+<a href="/dashboard"><span>⌂</span>首頁</a>
+<a href="/schedule"><span>▣</span>班表</a>
+<a href="/work-records"><span>✎</span>工作</a>
+<a href="/finance"><span>＄</span>收支</a>
+<a href="/health"><span>♡</span>健康</a>
+<a href="/notifications"><span>🔔</span>提醒</a>
+<a href="/profile"><span>⚙</span>設定</a>
 </nav>
-<a class="assistant" href="/notifications"><img src="/static/worklife_mascot.png" alt="AI"></a>
+<div class="web-user"><img src="{ user.pictureUrl or '/static/worklife_mascot.png' }"><b>{ user.displayName }</b></div>
+</header>
+<main class="content-page">
+<div class="page-heading"><div><h1>健康紀錄</h1><p>Galaxy Fit3 資料先採手動登錄。</p></div><span class="sync-pill"><i class="sync-dot"></i>手動紀錄</span></div>
+{% if request.query_params.get('saved') %}<div class="notice">✅ 今日健康資料已儲存</div>{% endif %}
+<div class="content-grid-2">
+<section class="panel">
+<div class="panel-title blue">今日健康</div>
+<form method="post" action="/health">
+<input type="hidden" name="record_date" value="{{ today }}">
+<div class="health-input-grid">
+<label>👟 步數<input type="number" min="0" name="steps" value="{{ record.steps if record else 0 }}"></label>
+<label>❤️ 心率<input type="number" min="0" name="heart_rate" value="{{ record.heart_rate if record else 0 }}"></label>
+<label>😴 睡眠小時<input type="number" min="0" name="sleep_hours" value="{{ (record.sleep_minutes // 60) if record else 0 }}"></label>
+<label>睡眠分鐘<input type="number" min="0" max="59" name="sleep_minutes" value="{{ (record.sleep_minutes % 60) if record else 0 }}"></label>
+<label>🔥 熱量<input type="number" min="0" name="calories" value="{{ record.calories if record else 0 }}"></label>
+<label>💧 喝水 ml<input type="number" min="0" name="water_ml" value="{{ record.water_ml if record else 0 }}"></label>
+<label>⚖️ 體重 kg<input type="number" min="0" step="0.1" name="weight" value="{{ record.weight if record else 0 }}"></label>
+</div>
+<label>備註<textarea name="note">{{ record.note if record else '' }}</textarea></label>
+<button class="web-btn primary full">儲存健康紀錄</button>
+</form>
+</section>
+<section class="panel">
+<div class="panel-title green">今日進度</div>
+<div class="health-summary-grid">
+<div><b>{{ record.steps if record else 0 }}</b><span>步</span><div class="web-progress"><i style="--value:{{ [((record.steps if record else 0)/100),100]|min }}%"></i></div></div>
+<div><b>{{ record.water_ml if record else 0 }}</b><span>ml 喝水</span><div class="web-progress"><i style="--value:{{ [((record.water_ml if record else 0)/20),100]|min }}%"></i></div></div>
+<div><b>{{ ((record.sleep_minutes if record else 0)/60)|round(1) }}</b><span>小時睡眠</span><div class="web-progress"><i style="--value:{{ [((record.sleep_minutes if record else 0)/4.8),100]|min }}%"></i></div></div>
+</div>
+<a class="outline-link full" href="/notifications">設定健康 LINE 提醒</a>
+</section>
+</div>
+<section class="panel"><div class="panel-title">歷史紀錄</div><div class="history-table"><div class="history-row head"><span>日期</span><span>步數</span><span>心率</span><span>睡眠</span><span>喝水</span></div>{% for h in history %}<div class="history-row"><span>{{ h.record_date }}</span><span>{{ h.steps }}</span><span>{{ h.heart_rate }}</span><span>{{ (h.sleep_minutes/60)|round(1) }}h</span><span>{{ h.water_ml }}ml</span></div>{% endfor %}</div></section>
+</main></div>
+<nav class="mobile-bottomnav">
+<a href="/dashboard">⌂<span>首頁</span></a>
+<a href="/schedule">▣<span>班表</span></a>
+<a href="/work-records">✎<span>工作</span></a>
+<a href="/life">🌿<span>生活</span></a>
+<a href="/profile">⚙<span>我的</span></a>
+</nav>
 <script src="/static/app.js"></script>
 </body></html>

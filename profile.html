@@ -1,16 +1,31 @@
-<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/style.css"><title>我的設定</title></head><body>
-<div class="shell"><header class="topbar"><div><div class="brand">我的設定</div><div class="subtitle">個人資料・通知・主題</div></div><a class="icon-btn" href="/dashboard">⌂</a></header>
-<section class="card hero"><div style="text-align:center"><img class="avatar" style="width:82px;height:82px" src="{{ user.pictureUrl or '' }}"><h2>{{ user.displayName }}</h2><div class="sync-pill"><i class="sync-dot"></i>LINE Login 已連結</div></div></section>
-<section class="card"><div class="list-row"><span>🔔 LINE 推播通知</span><strong>開啟</strong></div><div class="list-row"><span>✨ 動態效果</span><strong>標準</strong></div><div class="list-row"><span>🔄 自動更新</span><strong>每 15 秒</strong></div><div class="list-row"><span>🎨 主題</span><strong>粉藍粉紫</strong></div></section>
-<a class="btn secondary" style="width:100%" href="/logout">登出</a>
-</div>
-<nav class="bottomnav">
-<a href="/dashboard" class=""><span>🏠</span>首頁</a>
-<a href="/schedule" class=""><span>📅</span>班表</a>
-<a href="/work-records" class=""><span>💼</span>工作</a>
-<a href="/life" class=""><span>🌿</span>生活</a>
-<a href="/profile" class="active"><span>👤</span>我的</a>
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/style.css"><title>我的設定</title></head><body class="web-dashboard-body"><div class="web-app">
+<header class="web-header">
+<a class="web-logo" href="/dashboard"><img src="/static/worklife_mascot.png"><div><b>Work Life</b><small>個人資料與系統設定</small></div></a>
+<nav class="web-topnav">
+<a href="/dashboard"><span>⌂</span>首頁</a>
+<a href="/schedule"><span>▣</span>班表</a>
+<a href="/work-records"><span>✎</span>工作</a>
+<a href="/finance"><span>＄</span>收支</a>
+<a href="/health"><span>♡</span>健康</a>
+<a href="/notifications"><span>🔔</span>提醒</a>
+<a href="/profile"><span>⚙</span>設定</a>
 </nav>
-<a class="assistant" href="/notifications"><img src="/static/worklife_mascot.png" alt="AI"></a>
+<div class="web-user"><img src="{ user.pictureUrl or '/static/worklife_mascot.png' }"><b>{ user.displayName }</b></div>
+</header>
+<main class="content-page">
+<div class="page-heading"><div><h1>我的設定</h1><p>網頁版與手機版共用同一份設定。</p></div></div>
+{% if request.query_params.get('saved') %}<div class="notice">✅ 設定已儲存</div>{% endif %}
+<div class="content-grid-2">
+<section class="panel profile-card"><img class="profile-avatar" src="{{ user.pictureUrl or '/static/worklife_mascot.png' }}"><h2>{{ user.displayName }}</h2><p>LINE Login 已連結</p><div class="sync-pill"><i class="sync-dot"></i>Work Life 網頁版</div><a class="web-btn danger full" href="/logout">登出</a></section>
+<section class="panel"><div class="panel-title blue">系統設定</div><form method="post" action="/profile/settings"><label class="check-row"><input type="checkbox" name="weather_enabled" value="1" {{ 'checked' if weather_enabled=='1' else '' }}> 首頁顯示天氣更新</label><label class="check-row"><input type="checkbox" name="line_push_enabled" value="1" {{ 'checked' if line_push_enabled=='1' else '' }}> 啟用 LINE 私訊推播</label><label>頁面自動更新秒數<select name="auto_refresh_seconds"><option value="15" {{ 'selected' if auto_refresh_seconds=='15' else '' }}>15 秒</option><option value="30" {{ 'selected' if auto_refresh_seconds=='30' else '' }}>30 秒</option><option value="60" {{ 'selected' if auto_refresh_seconds=='60' else '' }}>60 秒</option></select></label><button class="web-btn primary full">儲存設定</button></form></section>
+</div>
+</main></div>
+<nav class="mobile-bottomnav">
+<a href="/dashboard">⌂<span>首頁</span></a>
+<a href="/schedule">▣<span>班表</span></a>
+<a href="/work-records">✎<span>工作</span></a>
+<a href="/life">🌿<span>生活</span></a>
+<a href="/profile">⚙<span>我的</span></a>
+</nav>
 <script src="/static/app.js"></script>
 </body></html>
