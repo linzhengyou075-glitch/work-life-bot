@@ -29,14 +29,6 @@ from database import (
 from line_api import verify_signature, reply_message, work_entry_flex, push_message, reminder_flex
 
 app = FastAPI(title="Work Life", version="2.1.0")
-app.add_middleware(
-    SessionMiddleware,
-    secret_key=settings.session_secret,
-    max_age=60 * 60 * 24 * 30,
-    same_site="lax",
-    https_only=settings.base_url.startswith("https://"),
-)
-
 templates = Jinja2Templates(directory=".")
 templates_engine = templates
 
@@ -79,6 +71,15 @@ async def browser_login_guard(request: Request, call_next):
         return RedirectResponse("/login-page", status_code=303)
 
     return await call_next(request)
+
+# Session 必須包在登入攔截器外層，網頁才能正常讀取登入狀態。
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.session_secret,
+    max_age=60 * 60 * 24 * 30,
+    same_site="lax",
+    https_only=settings.base_url.startswith("https://"),
+)
 
 @app.get("/static/style.css")
 def static_style():
