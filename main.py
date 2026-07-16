@@ -29,6 +29,14 @@ from database import (
 from line_api import verify_signature, reply_message, work_entry_flex, push_message, reminder_flex
 
 app = FastAPI(title="Work Life", version="2.1.0")
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.session_secret,
+    max_age=60 * 60 * 24 * 30,
+    same_site="lax",
+    https_only=settings.base_url.startswith("https://"),
+)
+
 templates = Jinja2Templates(directory=".")
 templates_engine = templates
 
@@ -71,15 +79,6 @@ async def browser_login_guard(request: Request, call_next):
         return RedirectResponse("/login-page", status_code=303)
 
     return await call_next(request)
-
-# Session 必須包在登入攔截器外層，網頁才能正常讀取登入狀態。
-app.add_middleware(
-    SessionMiddleware,
-    secret_key=settings.session_secret,
-    max_age=60 * 60 * 24 * 30,
-    same_site="lax",
-    https_only=settings.base_url.startswith("https://"),
-)
 
 @app.get("/static/style.css")
 def static_style():
@@ -264,13 +263,60 @@ def schedule_page(request: Request):
 def schedule_save(
     request: Request,
     work_date: str = Form(...),
-    shift_type_id: int = Form(...),
+    shift_type_id: str = Form(""),
+    quick_code: str = Form(""),
+    store_code: str = Form(""),
+    shift_type: str = Form(""),
     overtime: str = Form(""),
     overtime_end: str = Form(""),
     note: str = Form(""),
 ):
     require_owner(request)
-    save_shift(work_date, shift_type_id, overtime == "1", overtime_end, note.strip())
+
+    selected_id = None
+    if str(shift_type_id).strip().isdigit():
+        selected_id = int(shift_type_id)
+
+    # 相容舊版班表表單：即使舊頁面沒有送 shift_type_id，也能正常儲存。
+    if selected_id is None:
+        code = quick_code.strip().upper()
+        mapping = {
+            "15B": ("B", "15:00"),
+            "B": ("B", "23:00"),
+            "15C": ("C", "15:00"),
+            "C": ("C", "23:00"),
+            "X": ("X", "00:00"),
+        }
+        wanted_store = store_code.strip().upper()
+        wanted_start = ""
+
+        if code in mapping:
+            wanted_store, wanted_start = mapping[code]
+        elif shift_type == "late":
+            wanted_start = "15:00"
+        elif shift_type == "night":
+            wanted_start = "23:00"
+        elif shift_type == "off":
+            wanted_store, wanted_start = "X", "00:00"
+
+        for item in list_shift_types(active_only=True):
+            if wanted_store and item["store_code"] != wanted_store:
+                continue
+            if wanted_start and item["start_time"] != wanted_start:
+                continue
+            selected_id = item["id"]
+            break
+
+    if selected_id is None:
+        return RedirectResponse("/schedule?error=missing_shift", 303)
+
+    save_shift(
+        work_date,
+        selected_id,
+        overtime == "1",
+        overtime_end,
+        note.strip(),
+    )
     return RedirectResponse("/schedule?saved=1", 303)
 
 @app.post("/schedule/delete")
