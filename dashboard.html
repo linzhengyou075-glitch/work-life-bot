@@ -1,0 +1,10 @@
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/style.css"><title>Work Life 首頁</title></head><body>
+<div class="shell"><header class="topbar"><div><div class="brand">Work Life</div><div class="muted">今天也辛苦了 ✨</div></div><img class="avatar" src="{{ user.pictureUrl or '' }}"></header>
+<section class="card hero"><h1>嗨，{{ user.displayName }} 👋</h1><p>{{ today }}</p>
+{% if shift %}<h2>{{ '太平建昌店' if shift.store_code == 'B' else '太平溪洲店' if shift.store_code == 'C' else '休假' }}</h2>
+<p>{{ '晚班 15:00－23:00' if shift.shift_type == 'late' else '大夜班 23:00－07:00' if shift.shift_type == 'night' else '今天休假' }}</p>
+{% else %}<h2>今天尚未設定班表</h2><a class="btn" href="/schedule">立即新增</a>{% endif %}</section>
+<section class="grid"><div class="card metric"><span>📅</span><small class="muted">班表</small><strong>建昌／溪洲</strong></div><div class="card metric"><span>🤖</span><small class="muted">小幫手</small><strong>陪你整理</strong></div></section>
+<section class="card"><h3>第一包目前功能</h3><p class="muted">LINE Login、私人權限、動態首頁、班表與 /work 入口。</p></section></div>
+<a class="assistant" href="/schedule">🤖</a>
+<nav class="bottomnav"><a href="/dashboard"><span>🏠</span>首頁</a><a href="/schedule"><span>📅</span>班表</a><a href="#"><span>💼</span>工作</a><a href="#"><span>💰</span>收支</a><a href="/logout"><span>👤</span>登出</a></nav></body></html>
