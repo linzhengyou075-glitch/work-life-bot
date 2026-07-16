@@ -21,3 +21,75 @@
 .store-body{background:#f2f4ef}.store-header{border-top:6px solid #169b62;border-bottom:4px solid #1678bd;box-shadow:0 2px 8px rgba(0,0,0,.08)}.store-header .wl-brand b{color:#168a5d}.store-header nav a.active,.store-header nav a:hover{background:#e8f7f0;color:#087c50}.store-main{max-width:1600px;margin:auto;padding:10px 14px 90px}.store-statusbar{display:grid;grid-template-columns:250px 1fr auto;align-items:center;gap:14px;padding:8px 12px;background:#fff;border:1px solid #d7ddd7;font-size:13px}.store-statusbar>div:first-child{display:flex;flex-direction:column}.store-statusbar span{color:#68746f}.store-statusbar .ticker{display:flex;gap:10px;min-width:0}.store-statusbar .ticker strong{color:#1678bd;white-space:nowrap}.store-statusbar .ticker span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.store-statusbar>a{color:#1678bd;font-weight:800}.store-layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:12px;margin-top:10px}.store-center{min-width:0}.week-board{display:grid;grid-template-columns:105px repeat(7,minmax(110px,1fr));background:#fff;border:1px solid #cdd8d2;min-height:170px}.month-title{background:linear-gradient(#168cb2,#0f6f97);color:#fff;font-size:24px;font-weight:900;display:grid;place-items:center}.week-day{position:relative;padding:10px;border-left:1px solid #d9dfdc;min-width:0}.week-day.today{background:#effbf5;box-shadow:inset 0 4px #16a269}.week-day header{display:flex;align-items:baseline;gap:3px;color:#234}.week-day header b{font-size:34px;font-weight:500}.week-day header em{margin-left:auto;background:#168c62;color:#fff;border-radius:99px;padding:2px 6px;font-size:10px;font-style:normal}.week-weather{margin-top:10px;color:#087c50;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.week-day small{display:block;margin-top:5px;color:#65736c}.week-day>a{position:absolute;right:7px;bottom:7px;color:#1678bd}.week-empty{margin-top:12px;color:#9a6a19;font-weight:800}.ops-grid{display:grid;grid-template-columns:1.25fr 1fr 1fr 1fr;gap:10px;margin-top:10px}.ops-card,.message-panels>article,.side-card{background:#fff;border:1px solid #ced8d2;box-shadow:0 2px 7px rgba(20,60,40,.05)}.ops-card{padding:14px;min-height:175px}.ops-title{display:flex;gap:8px;align-items:center;color:#145b75}.ops-title span{font-size:23px}.ops-title b{font-size:17px}.weather-main{display:flex;align-items:center;gap:12px;margin:14px 0}.weather-main>strong{font-size:38px;color:#ed9e18}.weather-main div{display:flex;flex-direction:column}.weather-main div b{font-size:18px}.weather-main div span{color:#65736c;font-size:12px}.weather-stats{display:flex;gap:8px}.weather-stats span{background:#eef7f3;border-radius:7px;padding:7px;font-size:12px}.weather-error{display:block;color:#b34d43;margin-top:8px}.shift-focus{font-size:23px;font-weight:900;margin:18px 0;color:#225f52}.shift-focus small{display:block;color:#65736c;font-size:13px;margin-top:5px}.empty-focus{margin:24px 0;color:#8a938e}.store-action{display:block;text-align:center;padding:8px;border-radius:5px;background:#168c62;color:#fff;font-weight:800}.store-action.secondary{background:#edf5f1;color:#087c50}.metric{display:flex;align-items:baseline;margin:18px 0 12px}.metric strong{font-size:35px;color:#1678bd}.metric span{color:#67736e}.metric.shortage strong{color:#df5964}.message-panels{display:grid;grid-template-columns:1fr 1.5fr;gap:10px;margin-top:10px}.message-panels article>header,.side-card>header{background:#edf5f1;color:#126d4b;font-weight:900;padding:9px 11px;border-bottom:1px solid #d5e0da}.message-line{display:grid;grid-template-columns:60px 1fr;gap:8px;padding:8px 11px;border-bottom:1px solid #edf0ee;font-size:13px}.message-line b{color:#1678bd}.message-line.done{opacity:.5;text-decoration:line-through}.message-empty,.side-empty{padding:18px;color:#77827c}.store-side{display:flex;flex-direction:column;gap:10px}.side-card>a{display:block;text-align:center;margin:8px;color:#1678bd;font-weight:800}.logistics-time{display:grid;grid-template-columns:30px 1fr auto;gap:5px;padding:9px;border-bottom:1px solid #e6ebe8;align-items:center;font-size:12px}.logistics-time time{color:#087c50;font-weight:800}.logistics-time.done{opacity:.5}.side-task{display:grid;grid-template-columns:18px 1fr auto;padding:9px;border-bottom:1px solid #e6ebe8;font-size:12px}.side-task small{color:#7a8580}.quick-links>a{background:#f2f7f5;padding:10px;text-align:left;border-radius:5px}.upload-help{margin-top:8px;color:#68746f;font-size:12px;line-height:1.6}
 @media(max-width:1150px){.store-layout{grid-template-columns:1fr}.store-side{display:grid;grid-template-columns:1fr 1fr 1fr}.week-board{overflow-x:auto}.ops-grid{grid-template-columns:1fr 1fr}}
 @media(max-width:760px){.store-main{padding:8px 8px 78px}.store-statusbar{grid-template-columns:1fr auto}.store-statusbar .ticker{grid-column:1/-1;order:3}.week-board{display:flex;overflow-x:auto;scroll-snap-type:x mandatory}.month-title{min-width:82px;font-size:18px}.week-day{min-width:132px;scroll-snap-align:start}.ops-grid,.message-panels,.store-side{grid-template-columns:1fr}.ops-card{min-height:auto}.store-side{display:grid}.weather-main>strong{font-size:32px}}
+
+
+/* v1.1.3 Work Life 動態主題恢復版：保留功能，不採用店舖系統外觀 */
+.worklife-home{
+  position:relative;
+  overflow-x:hidden;
+  background:
+    radial-gradient(circle at 12% 8%,rgba(147,197,253,.45),transparent 30%),
+    radial-gradient(circle at 88% 12%,rgba(251,207,232,.48),transparent 32%),
+    radial-gradient(circle at 50% 90%,rgba(196,181,253,.30),transparent 38%),
+    linear-gradient(145deg,#f8fbff 0%,#f8f4ff 48%,#fff7fb 100%);
+  background-attachment:fixed;
+}
+.worklife-home:before{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:radial-gradient(circle,rgba(255,255,255,.95) 0 1px,transparent 1.8px);
+  background-size:34px 34px;opacity:.28;animation:starDrift 24s linear infinite;
+}
+.ambient{position:fixed;border-radius:50%;filter:blur(24px);opacity:.32;pointer-events:none;z-index:0;animation:ambientFloat 12s ease-in-out infinite alternate}
+.ambient-one{width:260px;height:260px;left:-90px;top:120px;background:#a5b4fc}
+.ambient-two{width:320px;height:320px;right:-120px;top:260px;background:#f9a8d4;animation-delay:-4s}
+.ambient-three{width:240px;height:240px;left:38%;bottom:-100px;background:#93c5fd;animation-delay:-8s}
+.worklife-home .store-header{
+  border:0;background:rgba(255,255,255,.76);backdrop-filter:blur(18px) saturate(150%);
+  box-shadow:0 10px 30px rgba(89,79,170,.10);position:sticky;top:0;z-index:50
+}
+.worklife-home .store-header:after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:linear-gradient(90deg,transparent,#8b7cf6,#72c7f4,#f39ac8,transparent);background-size:200% 100%;animation:rainbowFlow 6s linear infinite}
+.worklife-home .store-header .wl-brand b{color:#655fd1;text-shadow:0 0 18px rgba(112,102,226,.22)}
+.worklife-home .store-header nav a{transition:transform .2s ease,box-shadow .2s ease,background .2s ease}
+.worklife-home .store-header nav a.active,.worklife-home .store-header nav a:hover{background:linear-gradient(135deg,#ebeaff,#f8eaff);color:#655fd1;box-shadow:0 7px 18px rgba(104,93,204,.13);transform:translateY(-1px)}
+.worklife-home .store-main{position:relative;z-index:2;max-width:1540px;padding-top:16px}
+.worklife-home .glass-bar{border:1px solid rgba(255,255,255,.85);border-radius:18px;background:rgba(255,255,255,.70);backdrop-filter:blur(16px);box-shadow:0 12px 28px rgba(83,75,150,.10);overflow:hidden;position:relative}
+.worklife-home .glass-bar:before{content:"";position:absolute;inset:-120% -40%;background:linear-gradient(110deg,transparent 43%,rgba(255,255,255,.78) 50%,transparent 57%);animation:shine 9s linear infinite;pointer-events:none}
+.worklife-home .glass-bar>*{position:relative;z-index:1}
+.worklife-home .store-layout{gap:16px;margin-top:16px}
+.worklife-home .week-board{border:1px solid rgba(255,255,255,.82);border-radius:22px;overflow:hidden;background:rgba(255,255,255,.70);backdrop-filter:blur(18px);box-shadow:0 16px 38px rgba(82,74,151,.12)}
+.worklife-home .month-title{background:linear-gradient(150deg,#746ee8,#9a78e7 55%,#e38ebd);color:#fff;display:flex;flex-direction:column;gap:3px;align-items:center;justify-content:center;text-shadow:0 2px 8px rgba(40,28,100,.25);position:relative;overflow:hidden}
+.worklife-home .month-title:after{content:"";position:absolute;width:110px;height:110px;border-radius:50%;background:rgba(255,255,255,.18);right:-45px;bottom:-55px;animation:pulseOrb 4s ease-in-out infinite}
+.worklife-home .month-title span{font-size:13px;opacity:.9}.worklife-home .month-title b{font-size:20px;position:relative;z-index:1}
+.worklife-home .week-day{border-color:rgba(221,221,241,.72);background:rgba(255,255,255,.42);transition:transform .22s ease,background .22s ease,box-shadow .22s ease}
+.worklife-home .week-day:hover{transform:translateY(-4px);background:rgba(255,255,255,.86);box-shadow:0 12px 24px rgba(93,82,170,.13);z-index:3}
+.worklife-home .week-day.today{background:linear-gradient(155deg,rgba(231,235,255,.96),rgba(255,235,247,.92));box-shadow:inset 0 4px #7b72e7,0 10px 24px rgba(117,103,215,.15)}
+.worklife-home .week-day header em{background:linear-gradient(135deg,#716be0,#dd86bb);box-shadow:0 4px 12px rgba(122,103,211,.25)}
+.worklife-home .week-weather{color:#665fd1}.worklife-home .week-day>a{color:#6a63d7}
+.worklife-home .ops-grid{gap:14px;margin-top:16px}
+.worklife-home .ops-card,.worklife-home .message-panels>article,.worklife-home .side-card{border:1px solid rgba(255,255,255,.82);border-radius:20px;background:rgba(255,255,255,.76);backdrop-filter:blur(16px);box-shadow:0 13px 30px rgba(76,69,139,.09);transition:transform .24s ease,box-shadow .24s ease;overflow:hidden}
+.worklife-home .ops-card:hover,.worklife-home .side-card:hover{transform:translateY(-4px);box-shadow:0 20px 38px rgba(85,75,155,.15)}
+.worklife-home .ops-title{color:#5f5abf}.worklife-home .weather-main>strong{color:#ec8caf;text-shadow:0 0 18px rgba(236,140,175,.23)}
+.worklife-home .weather-stats span{background:linear-gradient(135deg,#f0f2ff,#fff0f7);border:1px solid #ece8fa}
+.worklife-home .shift-focus{color:#625dc8}
+.worklife-home .store-action{border-radius:12px;background:linear-gradient(135deg,#6f6be2,#9b76e7 55%,#df8cbb);box-shadow:0 8px 20px rgba(112,99,211,.22);transition:transform .2s ease,filter .2s ease}
+.worklife-home .store-action:hover{transform:translateY(-2px);filter:brightness(1.05)}
+.worklife-home .store-action.secondary{background:linear-gradient(135deg,#eef0ff,#fbeefa);color:#655fc8;box-shadow:none}
+.worklife-home .metric strong{color:#6c65d7}.worklife-home .metric.shortage strong{color:#e26486}
+.worklife-home .progress i{background:linear-gradient(90deg,#71d6c1,#7770e7,#ef91bf);background-size:200% 100%;animation:grow 1s ease,progressGlow 3s linear infinite}
+.worklife-home .message-panels>article>header,.worklife-home .side-card>header{background:linear-gradient(135deg,#f0f1ff,#fff0f8);color:#5f59bc;border-bottom-color:#ece8fa}
+.worklife-home .message-line b,.worklife-home .side-card>a{color:#6760cb}
+.worklife-home .logistics-time time{color:#6a63cf}
+.worklife-home .quick-links>a{background:linear-gradient(135deg,#f1f2ff,#fff3f9);border:1px solid #ede9fb;border-radius:11px;transition:transform .2s ease}
+.worklife-home .quick-links>a:hover{transform:translateX(3px)}
+.worklife-home .mobile-nav{background:rgba(255,255,255,.88);backdrop-filter:blur(16px);border-top:1px solid rgba(221,218,243,.9);box-shadow:0 -8px 25px rgba(79,69,145,.09)}
+.worklife-home .mobile-nav a.active{color:#665fd1}
+@keyframes rainbowFlow{to{background-position:200% 0}}
+@keyframes ambientFloat{to{transform:translate3d(35px,-25px,0) scale(1.12)}}
+@keyframes starDrift{to{background-position:34px 68px}}
+@keyframes pulseOrb{50%{transform:scale(1.16);opacity:.42}}
+@keyframes progressGlow{to{background-position:200% 0}}
+@media(max-width:760px){
+ .worklife-home .store-header{height:62px}.worklife-home .store-statusbar{border-radius:16px}
+ .worklife-home .week-board{border-radius:18px}.worklife-home .ops-card,.worklife-home .message-panels>article,.worklife-home .side-card{border-radius:17px}
+ .worklife-home .ambient{opacity:.22}
+}
