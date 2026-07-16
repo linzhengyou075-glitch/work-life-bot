@@ -1,101 +1,48 @@
 from datetime import date, datetime
+from io import BytesIO
+from pathlib import Path
 import asyncio
-import json
-import requests
+import sqlite3
 
-from fastapi import FastAPI, Request, Form, HTTPException
+from fastapi import FastAPI, Request, Form, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
+from openpyxl import load_workbook
 
-from auth import build_authorize_url, exchange_code, get_profile, new_state
+from auth import build_authorize_url, exchange_code, get_profile, new_state, LoginConfigError
 from config import settings
 from database import (
-    init_db, upsert_user, list_shift_types, add_shift_type,
-    list_shifts, get_shift, get_today_shift, save_shift, delete_shift,
-    list_templates, get_template, add_template_item, delete_template_item,
-    list_daily_work, toggle_daily_work,
-    attendance_for, check_in, check_out,
-    inventory_for, inventory_arrive, inventory_complete,
-    add_work_log, list_work_logs, delete_work_log,
-    add_task, list_tasks, toggle_task, delete_task, dashboard_counts,
-    add_reminder, list_reminders, list_today_carousel_reminders, due_reminders,
-    mark_reminder_sent, complete_reminder, delete_reminder,
-    add_notification_log, list_notification_logs,
-    upsert_health_record, get_health_record, list_health_records,
-    add_finance_record, delete_finance_record, list_finance_records, finance_summary,
-    upsert_card, list_cards, set_app_setting, get_app_setting,
+    init_db,upsert_user,list_shift_types,list_shifts,get_shift,save_shift,delete_shift,
+    list_daily_work,toggle_daily_work,list_logistics_settings,save_logistics_setting,
+    delete_logistics_setting,list_daily_logistics,logistics_arrive,logistics_complete,
+    attendance_for,check_in,check_out,add_reminder,list_reminders,due_reminders,
+    mark_reminder_sent,complete_reminder,delete_reminder,add_notification_log,
+    list_notification_logs,add_task,list_tasks,toggle_task,delete_task,
+    add_work_log,list_work_logs,delete_work_log,dashboard_counts,set_setting,get_setting
 )
-from line_api import verify_signature, reply_message, work_entry_flex, push_message, reminder_flex
+from line_api import verify_signature,reply_message,work_entry_flex,push_message,reminder_flex
 
-app = FastAPI(title="Work Life", version="2.1.0")
+BASE_DIR = Path(__file__).resolve().parent
+
+app=FastAPI(title="Work Life",version="4.0.1")
 app.add_middleware(
     SessionMiddleware,
     secret_key=settings.session_secret,
-    max_age=60 * 60 * 24 * 30,
+    max_age=60*60*24*30,
     same_site="lax",
-    https_only=settings.base_url.startswith("https://"),
+    https_only=settings.base_url.startswith("https://")
 )
-
-templates = Jinja2Templates(directory=".")
-templates_engine = templates
-
-PUBLIC_PATHS = {
-    "/",
-    "/login-page",
-    "/login",
-    "/auth/line/callback",
-    "/logout",
-    "/privacy",
-    "/terms",
-    "/webhook",
-    "/healthz",
-}
-PUBLIC_PREFIXES = ("/static/",)
-
-@app.middleware("http")
-async def browser_login_guard(request: Request, call_next):
-    """
-    Browser pages automatically return to LINE Login instead of exposing
-    a JSON 401 error. Static files, OAuth callback, legal pages, webhook,
-    and health checks remain public.
-    """
-    path = request.url.path
-    is_public = path in PUBLIC_PATHS or any(path.startswith(prefix) for prefix in PUBLIC_PREFIXES)
-
-    if not is_public and not request.session.get("user"):
-        # Preserve the page the user originally wanted to open.
-        if request.method == "GET" and not path.startswith("/api/"):
-            next_path = path
-            if request.url.query:
-                next_path += f"?{request.url.query}"
-            request.session["login_next"] = next_path
-            return RedirectResponse("/login-page", status_code=302)
-
-        if path.startswith("/api/"):
-            return JSONResponse({"ok": False, "detail": "尚未登入"}, status_code=401)
-
-        request.session["login_next"] = "/dashboard"
-        return RedirectResponse("/login-page", status_code=303)
-
-    return await call_next(request)
+templates=Jinja2Templates(directory=str(BASE_DIR))
 
 @app.get("/static/style.css")
-def static_style():
-    return FileResponse("style.css", media_type="text/css")
-
-
+def static_style(): return FileResponse(BASE_DIR / "style.css",media_type="text/css")
 @app.get("/static/app.js")
-def static_js():
-    return FileResponse("app.js", media_type="application/javascript")
-
+def static_js(): return FileResponse(BASE_DIR / "app.js",media_type="application/javascript")
 @app.get("/static/worklife_mascot.png")
-def static_mascot():
-    return FileResponse("worklife_mascot.png", media_type="image/png")
-
+def static_mascot(): return FileResponse(BASE_DIR / "worklife_mascot.png",media_type="image/png")
 @app.get("/static/worklife_frame.png")
-def static_frame():
-    return FileResponse("worklife_frame.png", media_type="image/png")
+def static_frame(): return FileResponse(BASE_DIR / "worklife_frame.png",media_type="image/png")
 
 @app.on_event("startup")
 async def startup():
@@ -105,590 +52,370 @@ async def startup():
 async def reminder_worker():
     while True:
         try:
-            now = datetime.now()
-            for reminder in due_reminders(now.strftime("%Y-%m-%d"), now.strftime("%H:%M")):
-                title = reminder["title"]
-                content = reminder["note"] or f'{reminder["remind_time"]} 的提醒'
-                url = f'{settings.base_url}{reminder["related_url"] or "/dashboard"}'
+            now=datetime.now()
+            for item in due_reminders(now.strftime("%Y-%m-%d"),now.strftime("%H:%M")):
                 try:
-                    sent = push_message(
-                        settings.owner_line_user_id,
-                        [reminder_flex(title, content, url)],
-                    )
+                    content=item["note"] or f'{item["remind_time"]} 提醒'
+                    url=f'{settings.base_url}{item["related_url"] or "/dashboard"}'
+                    sent=push_message(settings.owner_line_user_id,[reminder_flex(item["title"],content,url)])
                     if sent:
-                        mark_reminder_sent(reminder["id"])
-                        add_notification_log(title, content, reminder["reminder_type"], "sent")
+                        mark_reminder_sent(item["id"])
+                        add_notification_log(item["title"],content,"已推播")
                 except Exception as exc:
-                    add_notification_log(title, str(exc), reminder["reminder_type"], "failed")
+                    add_notification_log(item["title"],str(exc),"失敗")
         except Exception:
             pass
         await asyncio.sleep(60)
 
-def fetch_weather():
-    try:
-        response = requests.get(
-            "https://api.open-meteo.com/v1/forecast",
-            params={
-                "latitude": 24.127,
-                "longitude": 120.718,
-                "current": "temperature_2m,apparent_temperature,weather_code,wind_speed_10m",
-                "hourly": "precipitation_probability",
-                "timezone": "Asia/Taipei",
-                "forecast_days": 1,
-            },
-            timeout=8,
-        )
-        response.raise_for_status()
-        data = response.json()
-        current = data.get("current", {})
-        hourly = data.get("hourly", {})
-        probs = hourly.get("precipitation_probability", [])
-        return {
-            "temperature": current.get("temperature_2m"),
-            "apparent": current.get("apparent_temperature"),
-            "wind": current.get("wind_speed_10m"),
-            "rain_probability": max(probs) if probs else 0,
-            "code": current.get("weather_code"),
-            "updated_at": current.get("time"),
-        }
-    except Exception:
-        return {
-            "temperature": None,
-            "apparent": None,
-            "wind": None,
-            "rain_probability": None,
-            "code": None,
-            "updated_at": None,
-        }
+def current_user(request):
+    return request.session.get("user")
 
-def require_owner(request):
-    user = request.session.get("user")
+def protected(request,path):
+    user=current_user(request)
     if not user:
-        raise HTTPException(status_code=401, detail="尚未登入")
-    if not settings.owner_line_user_id:
-        raise HTTPException(status_code=503, detail="尚未設定管理者 LINE User ID")
-    if user.get("userId") != settings.owner_line_user_id:
-        raise HTTPException(status_code=403, detail="此系統僅限管理者使用")
-    return user
+        request.session["login_next"]=path
+        return None,RedirectResponse("/login-page",302)
+    if settings.owner_line_user_id and user.get("userId")!=settings.owner_line_user_id:
+        return None,templates.TemplateResponse("denied.html",{"request":request},status_code=403)
+    return user,None
 
 @app.get("/healthz")
-def health_check():
-    return {"status": "ok", "version": "2.1.1"}
+def healthz():
+    return {"status":"ok","version":"4.0.1","line_login_ready":settings.line_login_ready}
 
-@app.get("/", response_class=HTMLResponse)
-def root(request: Request):
-    if request.session.get("user"):
-        return RedirectResponse("/dashboard", 302)
-    request.session["login_next"] = "/dashboard"
-    return RedirectResponse("/login-page", 302)
+@app.get("/")
+def root(request:Request):
+    return RedirectResponse("/dashboard" if current_user(request) else "/login-page",302)
 
-@app.get("/login-page", response_class=HTMLResponse)
-def login_page(request: Request):
-    if request.session.get("user"):
-        return RedirectResponse("/dashboard", 302)
-    return templates.TemplateResponse("login.html", {"request": request})
+@app.get("/login-page",response_class=HTMLResponse)
+def login_page(request:Request):
+    if current_user(request): return RedirectResponse("/dashboard",302)
+    return templates.TemplateResponse("login.html",{"request":request})
 
 @app.get("/login")
-def login(request: Request):
-    state = new_state()
-    request.session["oauth_state"] = state
-    return RedirectResponse(build_authorize_url(state), 302)
+def login(request:Request):
+    try:
+        state=new_state()
+        request.session["oauth_state"]=state
+        return RedirectResponse(build_authorize_url(state),302)
+    except LoginConfigError as exc:
+        return templates.TemplateResponse("error.html", {"request":request,"message":str(exc)+" 請在部署環境設定 LINE_LOGIN_CHANNEL_ID、LINE_LOGIN_CHANNEL_SECRET、BASE_URL。"}, status_code=503)
 
 @app.get("/auth/line/callback")
-def line_callback(request: Request, code: str | None = None, state: str | None = None, error: str | None = None):
+def callback(request:Request,code:str|None=None,state:str|None=None,error:str|None=None):
     if error:
-        return templates.TemplateResponse("error.html", {"request": request, "message": f"LINE Login 失敗：{error}"}, status_code=400)
-    expected = request.session.pop("oauth_state", None)
-    if not code or not state or not expected or state != expected:
-        return templates.TemplateResponse("error.html", {"request": request, "message": "登入驗證失敗，請重新登入。"}, status_code=400)
-
-    token = exchange_code(code)
-    profile = get_profile(token["access_token"])
-
-    if not settings.owner_line_user_id:
-        return templates.TemplateResponse("error.html", {"request": request, "message": "尚未設定管理者 LINE User ID。"}, status_code=503)
-    if profile.get("userId") != settings.owner_line_user_id:
-        return templates.TemplateResponse("denied.html", {"request": request}, status_code=403)
-
-    upsert_user(profile["userId"], profile.get("displayName", "佑佑"), profile.get("pictureUrl"))
-    request.session["user"] = profile
-    next_url = request.session.pop("login_next", "/dashboard")
-    if not isinstance(next_url, str) or not next_url.startswith("/") or next_url.startswith("//"):
-        next_url = "/dashboard"
-    return RedirectResponse(next_url, 302)
+        return templates.TemplateResponse("error.html",{"request":request,"message":"LINE 登入失敗，請重新登入。"},status_code=400)
+    expected=request.session.pop("oauth_state",None)
+    if not code or not state or state!=expected:
+        return templates.TemplateResponse("error.html",{"request":request,"message":"登入驗證失敗，請重新登入。"},status_code=400)
+    try:
+        token=exchange_code(code)
+        profile=get_profile(token["access_token"])
+    except Exception as exc:
+        return templates.TemplateResponse("error.html", {"request":request,"message":f"LINE 登入連線失敗：{exc}"}, status_code=400)
+    if settings.owner_line_user_id and profile.get("userId")!=settings.owner_line_user_id:
+        return templates.TemplateResponse("denied.html",{"request":request},status_code=403)
+    upsert_user(profile["userId"],profile.get("displayName","佑佑"),profile.get("pictureUrl"))
+    request.session["user"]=profile
+    next_url=request.session.pop("login_next","/dashboard")
+    if not isinstance(next_url,str) or not next_url.startswith("/") or next_url.startswith("//"):
+        next_url="/dashboard"
+    return RedirectResponse(next_url,302)
 
 @app.get("/logout")
-def logout(request: Request):
+def logout(request:Request):
     request.session.clear()
-    return RedirectResponse("/login-page", 302)
+    return RedirectResponse("/login-page",302)
 
-@app.get("/dashboard", response_class=HTMLResponse)
-def dashboard(request: Request):
-    user = require_owner(request)
-    today = date.today().isoformat()
-    shift = get_today_shift(today)
-    return templates.TemplateResponse(
-        "dashboard.html",
-        {
-            "request": request,
-            "user": user,
-            "today": today,
-            "shift": shift,
-            "counts": dashboard_counts(today),
-            "tasks": list_tasks(show_done=False)[:5],
-            "daily_work": list_daily_work(today),
-            "attendance": attendance_for(today),
-            "inventory": inventory_for(today),
-            "reminders": list_today_carousel_reminders(today),
-            "weather": fetch_weather(),
-            "health": get_health_record(today),
-        },
-    )
+@app.get("/dashboard",response_class=HTMLResponse)
+def dashboard(request:Request):
+    user,resp=protected(request,"/dashboard")
+    if resp:return resp
+    today=date.today().isoformat()
+    return templates.TemplateResponse("dashboard.html",{
+        "request":request,"user":user,"today":today,
+        "shift":get_shift(today),
+        "daily_work":list_daily_work(today),
+        "daily_logistics":list_daily_logistics(today),
+        "attendance":attendance_for(today),
+        "tasks":list_tasks(False)[:5],
+        "reminders":[x for x in list_reminders(False) if x["remind_date"]==today],
+        "counts":dashboard_counts(today),
+    })
 
-@app.get("/schedule", response_class=HTMLResponse)
-def schedule_page(request: Request):
-    user = require_owner(request)
-    return templates.TemplateResponse(
-        "schedule.html",
-        {
-            "request": request,
-            "user": user,
-            "shifts": list_shifts(),
-            "shift_types": list_shift_types(active_only=True),
-            "templates": list_templates(),
-        },
-    )
+@app.get("/quick-schedule",response_class=HTMLResponse)
+@app.get("/schedule",response_class=HTMLResponse)
+def schedule_page(request:Request):
+    user,resp=protected(request,request.url.path)
+    if resp:return resp
+    return templates.TemplateResponse("schedule.html",{
+        "request":request,"user":user,
+        "shifts":list_shifts(),"shift_types":list_shift_types()
+    })
 
 @app.post("/schedule")
 def schedule_save(
-    request: Request,
-    work_date: str = Form(...),
-    shift_type_id: str = Form(""),
-    quick_code: str = Form(""),
-    store_code: str = Form(""),
-    shift_type: str = Form(""),
-    overtime: str = Form(""),
-    overtime_end: str = Form(""),
-    note: str = Form(""),
+    request:Request,work_date:str=Form(...),shift_type_id:int=Form(...),
+    overtime:str=Form(""),overtime_end:str=Form(""),
+    manager_tasks:str=Form(""),note:str=Form("")
 ):
-    require_owner(request)
-
-    selected_id = None
-    if str(shift_type_id).strip().isdigit():
-        selected_id = int(shift_type_id)
-
-    # 相容舊版班表表單：即使舊頁面沒有送 shift_type_id，也能正常儲存。
-    if selected_id is None:
-        code = quick_code.strip().upper()
-        mapping = {
-            "15B": ("B", "15:00"),
-            "B": ("B", "23:00"),
-            "15C": ("C", "15:00"),
-            "C": ("C", "23:00"),
-            "X": ("X", "00:00"),
-        }
-        wanted_store = store_code.strip().upper()
-        wanted_start = ""
-
-        if code in mapping:
-            wanted_store, wanted_start = mapping[code]
-        elif shift_type == "late":
-            wanted_start = "15:00"
-        elif shift_type == "night":
-            wanted_start = "23:00"
-        elif shift_type == "off":
-            wanted_store, wanted_start = "X", "00:00"
-
-        for item in list_shift_types(active_only=True):
-            if wanted_store and item["store_code"] != wanted_store:
-                continue
-            if wanted_start and item["start_time"] != wanted_start:
-                continue
-            selected_id = item["id"]
-            break
-
-    if selected_id is None:
-        return RedirectResponse("/schedule?error=missing_shift", 303)
-
-    save_shift(
-        work_date,
-        selected_id,
-        overtime == "1",
-        overtime_end,
-        note.strip(),
-    )
-    return RedirectResponse("/schedule?saved=1", 303)
+    user,resp=protected(request,"/quick-schedule")
+    if resp:return resp
+    save_shift(work_date,shift_type_id,overtime=="1",overtime_end,manager_tasks=="1",note.strip())
+    return RedirectResponse("/quick-schedule?saved=1",303)
 
 @app.post("/schedule/delete")
-def schedule_delete(request: Request, work_date: str = Form(...)):
-    require_owner(request)
+def schedule_delete(request:Request,work_date:str=Form(...)):
+    user,resp=protected(request,"/quick-schedule")
+    if resp:return resp
     delete_shift(work_date)
-    return RedirectResponse("/schedule?deleted=1", 303)
+    return RedirectResponse("/quick-schedule?deleted=1",303)
 
-@app.post("/shift-types")
-def shift_type_create(
-    request: Request,
-    name: str = Form(...),
-    store_code: str = Form(...),
-    start_time: str = Form(...),
-    end_time: str = Form(...),
-    color: str = Form("#8f7aea"),
-    icon: str = Form("🌙"),
-    template_id: str = Form(""),
-):
-    require_owner(request)
-    add_shift_type(name.strip(), store_code, start_time, end_time, color, icon, int(template_id) if template_id else None)
-    return RedirectResponse("/schedule?shift_type_saved=1", 303)
+def parse_excel(content:bytes):
+    wb=load_workbook(BytesIO(content),data_only=True)
+    types={x["name"]:x for x in list_shift_types()}
+    rows=[];errors=[]
+    for ws in wb.worksheets:
+        if "月班表" not in ws.title: continue
+        for row_no in range(5,ws.max_row+1):
+            raw_date=ws.cell(row_no,1).value
+            shift_name=str(ws.cell(row_no,3).value or "").strip()
+            if not raw_date or not shift_name: continue
+            if hasattr(raw_date,"strftime"):
+                work_date=raw_date.strftime("%Y-%m-%d")
+            else:
+                try: work_date=date.fromisoformat(str(raw_date).strip().replace("/","-")[:10]).isoformat()
+                except Exception:
+                    errors.append(f"{ws.title} 第{row_no}列日期無法讀取")
+                    continue
+            if shift_name not in types:
+                errors.append(f"{ws.title} 第{row_no}列班別不存在：{shift_name}")
+                continue
+            overtime=str(ws.cell(row_no,4).value or "否").strip()=="是"
+            overtime_end=str(ws.cell(row_no,5).value or "").strip()
+            note=str(ws.cell(row_no,6).value or "").strip()
+            rows.append({
+                "work_date":work_date,"shift_type_id":types[shift_name]["id"],
+                "overtime":overtime,"overtime_end":overtime_end,"note":note
+            })
+    return rows,errors
 
-@app.get("/work-records", response_class=HTMLResponse)
-def work_records_page(request: Request, work_date: str | None = None, template_id: int | None = None):
-    user = require_owner(request)
-    selected_date = work_date or date.today().isoformat()
-    templates = list_templates()
-    selected_template = get_template(template_id or (templates[0]["id"] if templates else 0)) if templates else None
-    return templates_engine.TemplateResponse(
-        "work_records.html",
-        {
-            "request": request,
-            "user": user,
-            "selected_date": selected_date,
-            "daily_work": list_daily_work(selected_date),
-            "logs": list_work_logs(),
-            "templates": templates,
-            "selected_template": selected_template,
-            "attendance": attendance_for(selected_date),
-            "inventory": inventory_for(selected_date),
-            "shift": get_shift(selected_date),
-        },
-    )
+@app.post("/quick-schedule/upload",response_class=HTMLResponse)
+async def excel_upload(request:Request,file:UploadFile=File(...),overwrite:str=Form("")):
+    user,resp=protected(request,"/quick-schedule")
+    if resp:return resp
+    context={"request":request,"user":user,"shifts":list_shifts(),"shift_types":list_shift_types()}
+    if not file.filename.lower().endswith(".xlsx"):
+        context["upload_error"]="請上傳 Excel 班表檔。"
+        return templates.TemplateResponse("schedule.html",context,status_code=400)
+    rows,errors=parse_excel(await file.read())
+    existing={x["work_date"] for x in list_shifts()}
+    imported=0;skipped=0
+    for row in rows:
+        if row["work_date"] in existing and overwrite!="1":
+            skipped+=1
+            continue
+        save_shift(row["work_date"],row["shift_type_id"],row["overtime"],row["overtime_end"],False,row["note"])
+        imported+=1
+    context.update({"shifts":list_shifts(),"upload_result":{"imported":imported,"skipped":skipped,"errors":errors}})
+    return templates.TemplateResponse("schedule.html",context)
 
-@app.post("/work-records")
-def save_work_record(
-    request: Request,
-    work_date: str = Form(...),
-    store_code: str = Form(...),
-    category: str = Form(...),
-    title: str = Form(...),
-    content: str = Form(""),
-    amount: int = Form(0),
-):
-    require_owner(request)
-    if store_code not in {"B", "C"}:
-        raise HTTPException(status_code=400, detail="店舖資料不正確")
-    if category not in {"handover", "shortage", "note"}:
-        raise HTTPException(status_code=400, detail="紀錄類型不正確")
-    add_work_log(work_date, store_code, category, title.strip(), content.strip(), max(amount, 0))
-    return RedirectResponse("/work-records?saved=1", 303)
-
-@app.post("/work-records/{log_id}/delete")
-def remove_work_record(request: Request, log_id: int):
-    require_owner(request)
-    delete_work_log(log_id)
-    return RedirectResponse("/work-records?deleted=1", 303)
-
-@app.get("/tasks", response_class=HTMLResponse)
-def tasks_page(request: Request):
-    user = require_owner(request)
-    return templates.TemplateResponse(
-        "tasks.html",
-        {"request": request, "user": user, "tasks": list_tasks()},
-    )
-
-@app.post("/tasks")
-def save_task(
-    request: Request,
-    title: str = Form(...),
-    due_date: str = Form(""),
-    note: str = Form(""),
-):
-    require_owner(request)
-    add_task(title.strip(), due_date.strip() or None, note.strip())
-    return RedirectResponse("/tasks?saved=1", 303)
-
-@app.post("/tasks/{task_id}/toggle")
-def task_toggle(request: Request, task_id: int):
-    require_owner(request)
-    toggle_task(task_id)
-    return RedirectResponse("/tasks", 303)
-
-@app.post("/tasks/{task_id}/delete")
-def task_delete(request: Request, task_id: int):
-    require_owner(request)
-    delete_task(task_id)
-    return RedirectResponse("/tasks?deleted=1", 303)
-
+@app.get("/work-records",response_class=HTMLResponse)
+def work_page(request:Request,work_date:str|None=None):
+    user,resp=protected(request,"/work-records")
+    if resp:return resp
+    selected=work_date or date.today().isoformat()
+    return templates.TemplateResponse("work_records.html",{
+        "request":request,"user":user,"selected_date":selected,
+        "shift":get_shift(selected),"daily_work":list_daily_work(selected),
+        "daily_logistics":list_daily_logistics(selected),
+        "attendance":attendance_for(selected),"logs":list_work_logs()
+    })
 
 @app.post("/daily-work/{item_id}/toggle")
-def daily_work_toggle(request: Request, item_id: int, work_date: str = Form(...)):
-    require_owner(request)
+def daily_toggle(request:Request,item_id:int,work_date:str=Form(...)):
+    user,resp=protected(request,"/work-records")
+    if resp:return resp
     toggle_daily_work(item_id)
-    return RedirectResponse(f"/work-records?work_date={work_date}", 303)
-
-@app.post("/templates/{template_id}/items")
-def template_item_add(
-    request: Request,
-    template_id: int,
-    title: str = Form(...),
-    scheduled_time: str = Form(""),
-    category: str = Form("work"),
-):
-    require_owner(request)
-    add_template_item(template_id, title.strip(), scheduled_time, category)
-    return RedirectResponse(f"/work-records?template_id={template_id}", 303)
-
-@app.post("/template-items/{item_id}/delete")
-def template_item_remove(request: Request, item_id: int, template_id: int = Form(...)):
-    require_owner(request)
-    delete_template_item(item_id)
-    return RedirectResponse(f"/work-records?template_id={template_id}", 303)
+    return RedirectResponse(f"/work-records?work_date={work_date}",303)
 
 @app.post("/attendance/check-in")
-def attendance_check_in(request: Request, work_date: str = Form(...)):
-    require_owner(request)
-    shift = get_shift(work_date)
-    check_in(work_date, shift["id"] if shift else None)
-    return RedirectResponse("/dashboard", 303)
+def attendance_check_in(request:Request,work_date:str=Form(...)):
+    user,resp=protected(request,"/work-records")
+    if resp:return resp
+    check_in(work_date)
+    return RedirectResponse(f"/work-records?work_date={work_date}",303)
 
 @app.post("/attendance/check-out")
-def attendance_check_out(request: Request, work_date: str = Form(...)):
-    require_owner(request)
+def attendance_check_out(request:Request,work_date:str=Form(...)):
+    user,resp=protected(request,"/work-records")
+    if resp:return resp
     check_out(work_date)
-    return RedirectResponse("/dashboard", 303)
+    return RedirectResponse(f"/work-records?work_date={work_date}",303)
 
-@app.post("/inventory/arrive")
-def inventory_arrived(request: Request, work_date: str = Form(...)):
-    require_owner(request)
-    inventory_arrive(work_date)
-    return RedirectResponse(f"/work-records?work_date={work_date}", 303)
+@app.post("/logistics/{item_id}/arrive")
+def logistics_start(request:Request,item_id:int,work_date:str=Form(...)):
+    user,resp=protected(request,"/work-records")
+    if resp:return resp
+    logistics_arrive(item_id)
+    return RedirectResponse(f"/work-records?work_date={work_date}",303)
 
-@app.post("/inventory/complete")
-def inventory_completed(request: Request, work_date: str = Form(...)):
-    require_owner(request)
-    inventory_complete(work_date)
-    return RedirectResponse(f"/work-records?work_date={work_date}", 303)
+@app.post("/logistics/{item_id}/complete")
+def logistics_finish(request:Request,item_id:int,work_date:str=Form(...)):
+    user,resp=protected(request,"/work-records")
+    if resp:return resp
+    logistics_complete(item_id)
+    return RedirectResponse(f"/work-records?work_date={work_date}",303)
 
-@app.get("/life", response_class=HTMLResponse)
-def life_page(request: Request):
-    user = require_owner(request)
-    today = date.today().isoformat()
-    return templates.TemplateResponse(
-        "life.html",
-        {
-            "request": request,
-            "user": user,
-            "today": today,
-            "reminders": list_reminders(include_done=False),
-            "tasks": list_tasks(show_done=False),
-        },
-    )
+@app.post("/work-records")
+def log_add(request:Request,work_date:str=Form(...),category:str=Form(...),title:str=Form(...),amount:int=Form(0),note:str=Form("")):
+    user,resp=protected(request,"/work-records")
+    if resp:return resp
+    add_work_log(work_date,category,title,max(amount,0),note)
+    return RedirectResponse(f"/work-records?work_date={work_date}",303)
 
-@app.get("/finance", response_class=HTMLResponse)
-def finance_page(request: Request):
-    user = require_owner(request)
-    month = date.today().strftime("%Y-%m")
-    return templates.TemplateResponse(
-        "finance.html",
-        {
-            "request": request,
-            "user": user,
-            "today": date.today().isoformat(),
-            "records": list_finance_records(),
-            "summary": finance_summary(month),
-        },
-    )
+@app.get("/logistics-settings",response_class=HTMLResponse)
+def logistics_settings_page(request:Request):
+    user,resp=protected(request,"/logistics-settings")
+    if resp:return resp
+    return templates.TemplateResponse("logistics.html",{
+        "request":request,"user":user,"items":list_logistics_settings()
+    })
 
-@app.post("/finance")
-def finance_add(
-    request: Request,
-    record_date: str = Form(...),
-    record_type: str = Form(...),
-    category: str = Form("其他"),
-    title: str = Form(...),
-    amount: int = Form(...),
-    note: str = Form(""),
+@app.post("/logistics-settings")
+def logistics_settings_save(
+    request:Request,item_id:str=Form(""),name:str=Form(...),icon:str=Form("🚚"),
+    start_time:str=Form(...),end_time:str=Form(...),content:str=Form(""),
+    applies_b:str=Form(""),applies_c:str=Form(""),applies_late:str=Form(""),
+    applies_night:str=Form(""),remind_minutes:int=Form(10),
+    line_push:str=Form(""),show_carousel:str=Form(""),is_active:str=Form("")
 ):
-    require_owner(request)
-    add_finance_record(record_date, record_type, category, title.strip(), max(amount, 0), note.strip())
-    return RedirectResponse("/finance?saved=1", 303)
+    user,resp=protected(request,"/logistics-settings")
+    if resp:return resp
+    try:
+        save_logistics_setting(
+            int(item_id) if item_id.isdigit() else None,name.strip(),icon.strip() or "🚚",
+            start_time,end_time,content.strip(),applies_b=="1",applies_c=="1",
+            applies_late=="1",applies_night=="1",max(remind_minutes,0),
+            line_push=="1",show_carousel=="1",is_active=="1"
+        )
+    except (ValueError, sqlite3.DatabaseError) as exc:
+        return templates.TemplateResponse("logistics.html", {
+            "request":request,"user":user,"items":list_logistics_settings(),"save_error":str(exc)
+        }, status_code=400)
+    return RedirectResponse("/logistics-settings?saved=1",303)
 
-@app.post("/finance/{record_id}/delete")
-def finance_remove(request: Request, record_id: int):
-    require_owner(request)
-    delete_finance_record(record_id)
-    return RedirectResponse("/finance?deleted=1", 303)
+@app.post("/logistics-settings/{item_id}/delete")
+def logistics_settings_delete(request:Request,item_id:int):
+    user,resp=protected(request,"/logistics-settings")
+    if resp:return resp
+    delete_logistics_setting(item_id)
+    return RedirectResponse("/logistics-settings?deleted=1",303)
 
-@app.get("/health", response_class=HTMLResponse)
-def health_page(request: Request):
-    user = require_owner(request)
-    today = date.today().isoformat()
-    return templates.TemplateResponse(
-        "health.html",
-        {
-            "request": request,
-            "user": user,
-            "today": today,
-            "record": get_health_record(today),
-            "history": list_health_records(),
-        },
-    )
-
-@app.post("/health")
-def health_save(
-    request: Request,
-    record_date: str = Form(...),
-    steps: int = Form(0),
-    heart_rate: int = Form(0),
-    sleep_hours: int = Form(0),
-    sleep_minutes: int = Form(0),
-    calories: int = Form(0),
-    water_ml: int = Form(0),
-    weight: float = Form(0),
-    note: str = Form(""),
-):
-    require_owner(request)
-    total_sleep = max(sleep_hours, 0) * 60 + max(sleep_minutes, 0)
-    upsert_health_record(
-        record_date, max(steps,0), max(heart_rate,0), total_sleep,
-        max(calories,0), max(water_ml,0), max(weight,0), note.strip()
-    )
-    return RedirectResponse("/health?saved=1", 303)
-
-@app.get("/cards", response_class=HTMLResponse)
-def cards_page(request: Request):
-    user = require_owner(request)
-    return templates.TemplateResponse(
-        "cards.html",
-        {"request": request, "user": user, "cards": list_cards()},
-    )
-
-@app.post("/cards")
-def cards_save(
-    request: Request,
-    card_type: str = Form(...),
-    label: str = Form(...),
-    barcode_value: str = Form(...),
-    note: str = Form(""),
-):
-    require_owner(request)
-    upsert_card(card_type, label.strip(), barcode_value.strip(), note.strip())
-    return RedirectResponse("/cards?saved=1", 303)
-
-@app.get("/profile", response_class=HTMLResponse)
-def profile_page(request: Request):
-    user = require_owner(request)
-    return templates.TemplateResponse(
-        "profile.html",
-        {
-            "request": request,
-            "user": user,
-            "weather_enabled": get_app_setting("weather_enabled", "1"),
-            "line_push_enabled": get_app_setting("line_push_enabled", "1"),
-            "auto_refresh_seconds": get_app_setting("auto_refresh_seconds", "15"),
-        },
-    )
-
-@app.post("/profile/settings")
-def profile_settings(
-    request: Request,
-    weather_enabled: str = Form("0"),
-    line_push_enabled: str = Form("0"),
-    auto_refresh_seconds: str = Form("15"),
-):
-    require_owner(request)
-    set_app_setting("weather_enabled", weather_enabled)
-    set_app_setting("line_push_enabled", line_push_enabled)
-    set_app_setting("auto_refresh_seconds", auto_refresh_seconds)
-    return RedirectResponse("/profile?saved=1", 303)
-
-@app.get("/notifications", response_class=HTMLResponse)
-def notifications_page(request: Request):
-    user = require_owner(request)
-    return templates.TemplateResponse(
-        "notifications.html",
-        {
-            "request": request,
-            "user": user,
-            "reminders": list_reminders(),
-            "logs": list_notification_logs(),
-            "today": date.today().isoformat(),
-        },
-    )
+@app.get("/notifications",response_class=HTMLResponse)
+def notification_page(request:Request):
+    user,resp=protected(request,"/notifications")
+    if resp:return resp
+    return templates.TemplateResponse("notifications.html",{
+        "request":request,"user":user,"today":date.today().isoformat(),
+        "reminders":list_reminders(),"logs":list_notification_logs()
+    })
 
 @app.post("/reminders")
 def reminder_add(
-    request: Request,
-    title: str = Form(...),
-    reminder_type: str = Form("custom"),
-    remind_date: str = Form(...),
-    remind_time: str = Form(...),
-    related_url: str = Form("/dashboard"),
-    note: str = Form(""),
-    line_push: str = Form(""),
-    show_carousel: str = Form(""),
+    request:Request,title:str=Form(...),reminder_type:str=Form("自訂"),
+    remind_date:str=Form(...),remind_time:str=Form(...),note:str=Form(""),
+    related_url:str=Form("/dashboard"),line_push:str=Form(""),show_carousel:str=Form("")
 ):
-    require_owner(request)
-    add_reminder(
-        title.strip(), reminder_type, remind_date, remind_time,
-        related_url, note.strip(), line_push == "1", show_carousel == "1"
-    )
-    return RedirectResponse("/notifications?saved=1", 303)
+    user,resp=protected(request,"/notifications")
+    if resp:return resp
+    add_reminder(title.strip(),reminder_type,remind_date,remind_time,note.strip(),
+                 related_url,line_push=="1",show_carousel=="1")
+    return RedirectResponse("/notifications?saved=1",303)
 
-@app.post("/reminders/{reminder_id}/complete")
-def reminder_complete(request: Request, reminder_id: int):
-    require_owner(request)
-    complete_reminder(reminder_id)
-    return RedirectResponse("/notifications", 303)
+@app.post("/reminders/{item_id}/complete")
+def reminder_done(request:Request,item_id:int):
+    user,resp=protected(request,"/notifications")
+    if resp:return resp
+    complete_reminder(item_id)
+    return RedirectResponse("/notifications",303)
 
-@app.post("/reminders/{reminder_id}/delete")
-def reminder_remove(request: Request, reminder_id: int):
-    require_owner(request)
-    delete_reminder(reminder_id)
-    return RedirectResponse("/notifications?deleted=1", 303)
+@app.post("/reminders/{item_id}/delete")
+def reminder_remove(request:Request,item_id:int):
+    user,resp=protected(request,"/notifications")
+    if resp:return resp
+    delete_reminder(item_id)
+    return RedirectResponse("/notifications",303)
 
-@app.get("/api/weather")
-def weather_api(request: Request):
-    require_owner(request)
-    return {"ok": True, "weather": fetch_weather()}
+@app.get("/tasks",response_class=HTMLResponse)
+def tasks_page(request:Request):
+    user,resp=protected(request,"/tasks")
+    if resp:return resp
+    return templates.TemplateResponse("tasks.html",{"request":request,"user":user,"tasks":list_tasks()})
 
+@app.post("/tasks")
+def task_add(request:Request,title:str=Form(...),due_date:str=Form(""),note:str=Form("")):
+    user,resp=protected(request,"/tasks")
+    if resp:return resp
+    add_task(title,due_date,note)
+    return RedirectResponse("/tasks",303)
+
+@app.post("/tasks/{item_id}/toggle")
+def task_toggle(request:Request,item_id:int):
+    user,resp=protected(request,"/tasks")
+    if resp:return resp
+    toggle_task(item_id)
+    return RedirectResponse("/tasks",303)
+
+@app.post("/tasks/{item_id}/delete")
+def task_remove(request:Request,item_id:int):
+    user,resp=protected(request,"/tasks")
+    if resp:return resp
+    delete_task(item_id)
+    return RedirectResponse("/tasks",303)
+
+@app.get("/profile",response_class=HTMLResponse)
+def profile_page(request:Request):
+    user,resp=protected(request,"/profile")
+    if resp:return resp
+    return templates.TemplateResponse("profile.html",{
+        "request":request,"user":user,
+        "line_push":get_setting("line_push","1"),
+        "auto_refresh":get_setting("auto_refresh","15")
+    })
+
+@app.post("/profile")
+def profile_save(request:Request,line_push:str=Form(""),auto_refresh:str=Form("15")):
+    user,resp=protected(request,"/profile")
+    if resp:return resp
+    set_setting("line_push","1" if line_push=="1" else "0")
+    set_setting("auto_refresh",auto_refresh)
+    return RedirectResponse("/profile?saved=1",303)
 
 @app.get("/api/dashboard-state")
-def dashboard_state(request: Request):
-    require_owner(request)
-    today = date.today().isoformat()
+def dashboard_state(request:Request):
+    user,resp=protected(request,"/dashboard")
+    if resp:return JSONResponse({"ok":False},401)
+    today=date.today().isoformat()
     return {
-        "ok": True,
-        "today": today,
-        "shift": get_today_shift(today),
-        "counts": dashboard_counts(today),
-        "daily_work": list_daily_work(today),
-        "attendance": attendance_for(today),
-        "inventory": inventory_for(today),
-        "reminders": list_today_carousel_reminders(today),
-        "weather": fetch_weather(),
-        "health": get_health_record(today),
+        "ok":True,
+        "shift":get_shift(today),
+        "daily_work":list_daily_work(today),
+        "daily_logistics":list_daily_logistics(today),
+        "attendance":attendance_for(today),
+        "counts":dashboard_counts(today)
     }
 
-@app.get("/api/schedule-state")
-def schedule_state(request: Request):
-    require_owner(request)
-    return {"ok": True, "shifts": list_shifts()}
-
-@app.get("/privacy", response_class=HTMLResponse)
-def privacy(request: Request):
-    return templates.TemplateResponse("privacy.html", {"request": request})
-
-@app.get("/terms", response_class=HTMLResponse)
-def terms(request: Request):
-    return templates.TemplateResponse("terms.html", {"request": request})
-
 @app.post("/webhook")
-async def webhook(request: Request):
-    raw = await request.body()
-    if not verify_signature(raw, request.headers.get("x-line-signature", "")):
-        raise HTTPException(status_code=400, detail="Invalid signature")
-    payload = json.loads(raw.decode())
-    for event in payload.get("events", []):
-        if event.get("type") == "message" and event.get("message", {}).get("type") == "text":
-            if event["message"]["text"].strip().lower() == "/work":
-                reply_message(event["replyToken"], [work_entry_flex()])
-    return JSONResponse({"ok": True})
+async def webhook(request:Request):
+    body=(await request.body()).decode("utf-8")
+    signature=request.headers.get("X-Line-Signature","")
+    if not verify_signature(body,signature):
+        return JSONResponse({"ok":False},400)
+    data=await request.json()
+    for event in data.get("events",[]):
+        if event.get("type")=="message" and event.get("message",{}).get("type")=="text":
+            text=event["message"]["text"].strip().lower()
+            if text in {"/work","work","工作小幫手","班表"}:
+                reply_message(event["replyToken"],[work_entry_flex(settings.base_url)])
+    return {"ok":True}

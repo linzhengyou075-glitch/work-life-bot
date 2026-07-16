@@ -1,31 +1,6 @@
-<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/style.css"><title>我的設定</title></head><body class="web-dashboard-body"><div class="web-app">
-<header class="web-header">
-<a class="web-logo" href="/dashboard"><img src="/static/worklife_mascot.png"><div><b>Work Life</b><small>個人資料與系統設定</small></div></a>
-<nav class="web-topnav">
-<a href="/dashboard"><span>⌂</span>首頁</a>
-<a href="/schedule"><span>▣</span>班表</a>
-<a href="/work-records"><span>✎</span>工作</a>
-<a href="/finance"><span>＄</span>收支</a>
-<a href="/health"><span>♡</span>健康</a>
-<a href="/notifications"><span>🔔</span>提醒</a>
-<a href="/profile"><span>⚙</span>設定</a>
-</nav>
-<div class="web-user"><img src="{ user.pictureUrl or '/static/worklife_mascot.png' }"><b>{ user.displayName }</b></div>
-</header>
-<main class="content-page">
-<div class="page-heading"><div><h1>我的設定</h1><p>網頁版與手機版共用同一份設定。</p></div></div>
-{% if request.query_params.get('saved') %}<div class="notice">✅ 設定已儲存</div>{% endif %}
-<div class="content-grid-2">
-<section class="panel profile-card"><img class="profile-avatar" src="{{ user.pictureUrl or '/static/worklife_mascot.png' }}"><h2>{{ user.displayName }}</h2><p>LINE Login 已連結</p><div class="sync-pill"><i class="sync-dot"></i>Work Life 網頁版</div><a class="web-btn danger full" href="/logout">登出</a></section>
-<section class="panel"><div class="panel-title blue">系統設定</div><form method="post" action="/profile/settings"><label class="check-row"><input type="checkbox" name="weather_enabled" value="1" {{ 'checked' if weather_enabled=='1' else '' }}> 首頁顯示天氣更新</label><label class="check-row"><input type="checkbox" name="line_push_enabled" value="1" {{ 'checked' if line_push_enabled=='1' else '' }}> 啟用 LINE 私訊推播</label><label>頁面自動更新秒數<select name="auto_refresh_seconds"><option value="15" {{ 'selected' if auto_refresh_seconds=='15' else '' }}>15 秒</option><option value="30" {{ 'selected' if auto_refresh_seconds=='30' else '' }}>30 秒</option><option value="60" {{ 'selected' if auto_refresh_seconds=='60' else '' }}>60 秒</option></select></label><button class="web-btn primary full">儲存設定</button></form></section>
-</div>
-</main></div>
-<nav class="mobile-bottomnav">
-<a href="/dashboard">⌂<span>首頁</span></a>
-<a href="/schedule">▣<span>班表</span></a>
-<a href="/work-records">✎<span>工作</span></a>
-<a href="/life">🌿<span>生活</span></a>
-<a href="/profile">⚙<span>我的</span></a>
-</nav>
-<script src="/static/app.js"></script>
-</body></html>
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/style.css"><title>設定</title></head>
+<body class="wl-body"><header class="wl-header"><a href="/dashboard" class="wl-brand"><img src="/static/worklife_mascot.png"><b>Work Life</b><small>設定</small></a><nav><a href="/dashboard">首頁</a><a href="/quick-schedule">快速班表</a><a href="/work-records">工作事項</a><a href="/logistics-settings">物流設定</a><a href="/notifications">提醒</a><a class="active" href="/profile">設定</a></nav></header>
+<main class="wl-main">{% if request.query_params.get("saved") %}<div class="notice success">系統設定已儲存。</div>{% endif %}<div class="page-head"><div><h1>⚙ 設定</h1><p>手機版與網頁版共用同一份設定。</p></div></div>
+{% if request.query_params.get('saved') %}<div class="notice">✅ 設定已儲存。</div>{% endif %}
+<div class="work-layout"><section class="wl-card profile-box"><img src="{{ user.pictureUrl or '/static/worklife_mascot.png' }}"><h2>{{ user.displayName }}</h2><p>LINE 登入已連結</p><a class="wl-btn danger full" href="/logout">登出</a></section><section class="wl-card"><h2>系統設定</h2><form method="post" action="/profile"><label class="check"><input type="checkbox" name="line_push" value="1" {{ 'checked' if line_push=='1' else '' }}> 啟用 LINE 私訊推播</label><label>頁面自動更新<select name="auto_refresh"><option value="15" {{ 'selected' if auto_refresh=='15' else '' }}>15 秒</option><option value="30" {{ 'selected' if auto_refresh=='30' else '' }}>30 秒</option><option value="60" {{ 'selected' if auto_refresh=='60' else '' }}>60 秒</option></select></label><button class="wl-btn full">儲存設定</button></form><a class="wl-btn ghost full" href="/logistics-settings">物流設定</a><a class="wl-btn ghost full" href="/notifications">提醒設定</a></section></div>
+</main><script src="/static/app.js"></script></body></html>

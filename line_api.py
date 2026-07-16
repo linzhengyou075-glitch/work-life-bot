@@ -22,7 +22,7 @@ def reply_message(reply_token, messages):
     )
     r.raise_for_status()
 
-def work_entry_flex():
+def work_entry_flex(base_url=None):
     return {
         "type": "flex",
         "altText": "Work Life 網頁入口",
@@ -52,7 +52,7 @@ def work_entry_flex():
                     "type": "button",
                     "style": "primary",
                     "color": "#8B73E8",
-                    "action": {"type": "uri", "label": "進入 Work Life", "uri": f"{settings.base_url}/login"},
+                    "action": {"type": "uri", "label": "進入 Work Life", "uri": f"{(base_url or settings.base_url)}/login"},
                 }],
             },
         },
