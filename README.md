@@ -1,23 +1,21 @@
-# Work Life Bot 第一包（手機平面上傳版）
+# Work Life 第二階段－介面總框架
 
-這一包特別適合使用 GitHub 手機版上傳：所有檔案都放在同一層，不需要保留資料夾結構。
+本包先完成手機版面板與各頁面顯示，功能資料會在後續逐頁串接。
 
-Render 設定：
-- Build Command：`pip install -r requirements.txt`
-- Start Command：`uvicorn main:app --host 0.0.0.0 --port $PORT`
-- Instance Type：Free
+新增與重製：
+- 全新手機版首頁面板
+- 粉藍／粉紫動態背景
+- 卡片進場、AI 漂浮、按鍵縮放、動態數字與動態條
+- 頁面停留時每 15 秒自動同步首頁資料
+- 首頁、班表、工作、待辦、生活、收支、健康、卡片、通知、我的
+- Fitbit 健康介面
+- 工作與生活快捷入口
+- 小型 AI 小幫手
+- 會員／員工／載具條碼介面預留
+- 不使用任何全家官方品牌、配色或商標元素
 
-已完成：
-- `/work` LINE 入口卡片
-- LINE Login
-- 僅指定管理者可登入
-- 粉藍／粉紫動態首頁
-- 建昌／溪洲班表
-- 快速代碼：15B、15C、B、C、X
-- 隱私權政策與使用條款
-
-部署後網址：
-- Webhook：`https://你的網址/webhook`
-- Callback：`https://你的網址/auth/line/callback`
-- Privacy：`https://你的網址/privacy`
-- Terms：`https://你的網址/terms`
+上傳方式：
+1. 解壓縮後，將所有檔案覆蓋上傳至 GitHub `work-life-bot`。
+2. Commit message：`Phase2 Mobile UI Framework`
+3. Render 會自動部署。
+4. 不需要修改環境變數。

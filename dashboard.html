@@ -1,10 +1,67 @@
 <!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/style.css"><title>Work Life 首頁</title></head><body>
-<div class="shell"><header class="topbar"><div><div class="brand">Work Life</div><div class="muted">今天也辛苦了 ✨</div></div><img class="avatar" src="{{ user.pictureUrl or '' }}"></header>
-<section class="card hero"><h1>嗨，{{ user.displayName }} 👋</h1><p>{{ today }}</p>
-{% if shift %}<h2>{{ '太平建昌店' if shift.store_code == 'B' else '太平溪洲店' if shift.store_code == 'C' else '休假' }}</h2>
-<p>{{ '晚班 15:00－23:00' if shift.shift_type == 'late' else '大夜班 23:00－07:00' if shift.shift_type == 'night' else '今天休假' }}</p>
-{% else %}<h2>今天尚未設定班表</h2><a class="btn" href="/schedule">立即新增</a>{% endif %}</section>
-<section class="grid"><div class="card metric"><span>📅</span><small class="muted">班表</small><strong>建昌／溪洲</strong></div><div class="card metric"><span>🤖</span><small class="muted">小幫手</small><strong>陪你整理</strong></div></section>
-<section class="card"><h3>第一包目前功能</h3><p class="muted">LINE Login、私人權限、動態首頁、班表與 /work 入口。</p></section></div>
-<a class="assistant" href="/schedule">🤖</a>
-<nav class="bottomnav"><a href="/dashboard"><span>🏠</span>首頁</a><a href="/schedule"><span>📅</span>班表</a><a href="#"><span>💼</span>工作</a><a href="#"><span>💰</span>收支</a><a href="/logout"><span>👤</span>登出</a></nav></body></html>
+<div class="shell">
+<header class="topbar">
+  <div><div class="brand">Work Life</div><div class="subtitle">工作與生活，都好好安排</div></div>
+  <div class="header-actions"><a class="icon-btn" href="/notifications">🔔</a><img class="avatar" src="{{ user.pictureUrl or '' }}"></div>
+</header>
+
+<section class="card hero">
+  <div class="hero-grid">
+    <div>
+      <div class="sync-pill"><i class="sync-dot"></i>已同步・<span data-sync-time>--:--</span></div>
+      <h1>嗨，{{ user.displayName }} 👋</h1>
+      <p>{{ today }}・今天也辛苦了</p>
+      {% if shift %}
+      <h2>{{ '太平建昌店' if shift.store_code == 'B' else '太平溪洲店' if shift.store_code == 'C' else '今天休假' }}</h2>
+      <p>{{ '晚班 15:00－23:00' if shift.shift_type == 'late' else '大夜班 23:00－07:00' if shift.shift_type == 'night' else '好好休息一下' }}</p>
+      {% else %}
+      <h2>今天尚未設定班表</h2><a class="btn" href="/schedule">新增班表</a>
+      {% endif %}
+    </div>
+    <img class="mascot" src="/static/worklife_mascot.png" alt="Work Life AI">
+  </div>
+</section>
+
+<section class="grid">
+  <a class="card metric pink" href="/work-records"><div class="icon">💸</div><small class="muted">今日短收</small><strong class="dynamic-number" data-live="shortage">${{ counts.shortage_total }}</strong><div class="progress"><i style="--value:32%"></i></div></a>
+  <a class="card metric purple" href="/tasks"><div class="icon">✅</div><small class="muted">待辦事項</small><strong><span data-live="pending">{{ counts.pending_tasks }}</span> 件</strong><div class="progress"><i style="--value:64%"></i></div></a>
+  <a class="card metric blue" href="/schedule"><div class="icon">📅</div><small class="muted">班表</small><strong>建昌／溪洲</strong><div class="progress"><i style="--value:48%"></i></div></a>
+  <a class="card metric mint" href="/health"><div class="icon">⌚</div><small class="muted">今日步數</small><strong><span data-count="8420">0</span></strong><div class="progress"><i style="--value:72%"></i></div></a>
+</section>
+
+<section class="card">
+  <div class="section-title"><h3>快捷功能</h3><small class="muted">工作＋生活</small></div>
+  <div class="quick-grid">
+    <a class="quick" href="/schedule"><div class="qicon">📅</div><span>班表</span></a>
+    <a class="quick" href="/work-records"><div class="qicon">📝</div><span>工作紀錄</span></a>
+    <a class="quick" href="/tasks"><div class="qicon">✅</div><span>待辦</span></a>
+    <a class="quick" href="/finance"><div class="qicon">💰</div><span>收支</span></a>
+    <a class="quick" href="/health"><div class="qicon">⌚</div><span>健康</span></a>
+    <a class="quick" href="/cards"><div class="qicon">💳</div><span>卡片</span></a>
+    <a class="quick" href="/life"><div class="qicon">🌿</div><span>生活</span></a>
+    <a class="quick" href="/profile"><div class="qicon">⚙️</div><span>設定</span></a>
+  </div>
+</section>
+
+<section class="card">
+  <div class="section-title"><h3>今日待辦</h3><a href="/tasks" class="muted">查看全部</a></div>
+  {% for t in tasks %}<div class="mini-row"><span>○ {{ t.title }}</span><small class="muted">{{ t.due_date or '未設定日期' }}</small></div>
+  {% else %}<p class="muted">目前沒有待辦事項。</p>{% endfor %}
+</section>
+
+<section class="card page-banner">
+  <div class="section-title"><h3>🤖 AI 小幫手</h3><small class="muted">縮小顯示</small></div>
+  <p>今天的重點已整理完成。頁面會每 15 秒自動同步最新資料。</p>
+  <div data-sync-toast style="opacity:0;transition:.25s" class="sync-pill">✨ 資料已更新</div>
+</section>
+</div>
+<nav class="bottomnav">
+<a href="/dashboard" class="active"><span>🏠</span>首頁</a>
+<a href="/schedule" class=""><span>📅</span>班表</a>
+<a href="/work-records" class=""><span>💼</span>工作</a>
+<a href="/life" class=""><span>🌿</span>生活</a>
+<a href="/profile" class=""><span>👤</span>我的</a>
+</nav>
+<a class="assistant" href="/notifications"><img src="/static/worklife_mascot.png" alt="AI"></a>
+<script src="/static/app.js"></script>
+</body></html>

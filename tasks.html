@@ -1,0 +1,17 @@
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/style.css"><title>待辦提醒</title></head><body>
+<div class="shell"><header class="topbar"><div><div class="brand">待辦提醒</div><div class="subtitle">工作與生活事項</div></div><a class="icon-btn" href="/dashboard">⌂</a></header>
+{% if request.query_params.get('saved') %}<div class="notice">✅ 待辦已新增</div>{% endif %}
+<section class="card hero"><div class="section-title"><h2>新增待辦</h2><span>✅</span></div>
+<form method="post" action="/tasks"><label>事項<input name="title" required></label><label>到期日期<input type="date" name="due_date"></label><label>備註<textarea name="note" rows="3"></textarea></label><button class="btn" type="submit">新增待辦</button></form></section>
+<section class="card"><h2>待辦清單</h2>{% for task in tasks %}<div class="list-row"><form method="post" action="/tasks/{{ task.id }}/toggle"><button class="icon-btn" type="submit">{{ '✓' if task.is_done else '○' }}</button></form><div style="flex:1"><strong>{{ task.title }}</strong><div class="muted">{{ task.due_date or '未設定日期' }}</div></div></div>{% else %}<p class="muted">目前沒有待辦。</p>{% endfor %}</section>
+</div>
+<nav class="bottomnav">
+<a href="/dashboard" class=""><span>🏠</span>首頁</a>
+<a href="/schedule" class=""><span>📅</span>班表</a>
+<a href="/work-records" class="active"><span>💼</span>工作</a>
+<a href="/life" class=""><span>🌿</span>生活</a>
+<a href="/profile" class=""><span>👤</span>我的</a>
+</nav>
+<a class="assistant" href="/notifications"><img src="/static/worklife_mascot.png" alt="AI"></a>
+<script src="/static/app.js"></script>
+</body></html>
