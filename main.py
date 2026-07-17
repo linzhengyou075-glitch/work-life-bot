@@ -86,7 +86,7 @@ def week_schedule(anchor=None):
     return output
 
 
-app=FastAPI(title="Work Life",version="4.1.0")
+app=FastAPI(title="Work Life",version="4.1.1")
 app.add_middleware(
     SessionMiddleware,
     secret_key=settings.session_secret,
@@ -95,6 +95,17 @@ app.add_middleware(
     https_only=settings.base_url.startswith("https://")
 )
 templates=Jinja2Templates(directory=str(BASE_DIR))
+
+@app.middleware("http")
+async def disable_dynamic_cache(request: Request, call_next):
+    """避免手機瀏覽器重新整理時顯示儲存前的快取頁面。"""
+    response = await call_next(request)
+    if request.url.path.startswith("/static/"):
+        return response
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 @app.get("/static/style.css")
 def static_style(): return FileResponse(BASE_DIR / "style.css",media_type="text/css")
@@ -472,8 +483,18 @@ def tasks_page(request:Request):
 def task_add(request:Request,title:str=Form(...),due_date:str=Form(""),note:str=Form("")):
     user,resp=protected(request,"/tasks")
     if resp:return resp
-    add_task(title,due_date,note)
-    return RedirectResponse("/tasks",303)
+    try:
+        add_task(title,due_date,note)
+    except (ValueError, OSError) as exc:
+        return templates.TemplateResponse("tasks.html",{
+            "request":request,"user":user,"tasks":list_tasks(),"save_error":str(exc)
+        },status_code=400)
+    except Exception:
+        return templates.TemplateResponse("tasks.html",{
+            "request":request,"user":user,"tasks":list_tasks(),
+            "save_error":"儲存失敗，請稍後再試；原本資料沒有被覆蓋。"
+        },status_code=500)
+    return RedirectResponse("/tasks?saved=1",303)
 
 @app.post("/tasks/{item_id}/toggle")
 def task_toggle(request:Request,item_id:int):

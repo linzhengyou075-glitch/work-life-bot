@@ -17,11 +17,18 @@ def _db_path():
 DB_PATH = _db_path()
 
 def connect():
+    """開啟唯一的 Work Life 資料庫連線。
+
+    timeout 與 busy_timeout 可避免 Render 同時讀寫時出現 database is locked；
+    每個寫入函式仍會明確 commit，確保重新整理後立即讀得到。
+    """
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(DB_PATH)
+    db = sqlite3.connect(str(DB_PATH), timeout=30)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys=ON")
+    db.execute("PRAGMA busy_timeout=30000")
     db.execute("PRAGMA journal_mode=WAL")
+    db.execute("PRAGMA synchronous=FULL")
     return db
 
 def _columns(db, table):
@@ -418,6 +425,13 @@ def save_shift(work_date,shift_type_id,overtime=False,overtime_end="",manager_ta
             db.execute("""DELETE FROM daily_work_items WHERE work_date=?
             AND template_item_id IS NOT NULL AND is_done=0""",(work_date,))
         _sync_logistics(db,work_date,st)
+        db.commit()
+
+    # 使用全新連線驗證，避免只更新到目前請求的暫存畫面。
+    saved = get_shift(work_date)
+    if not saved or int(saved["shift_type_id"]) != int(shift_type_id):
+        raise OSError("班表未能寫入永久資料庫，請稍後再試。")
+    return saved
 
 def delete_shift(work_date):
     with connect() as db:
@@ -540,7 +554,18 @@ def list_notification_logs():
     with connect() as db:return [dict(r) for r in db.execute("SELECT * FROM notification_logs ORDER BY id DESC LIMIT 100")]
 
 def add_task(title,due_date="",note=""):
-    with connect() as db:db.execute("INSERT INTO tasks(title,due_date,note) VALUES (?,?,?)",(title,due_date or None,note))
+    title=(title or "").strip()
+    if not title:
+        raise ValueError("請輸入待辦事項")
+    with connect() as db:
+        cur=db.execute("INSERT INTO tasks(title,due_date,note) VALUES (?,?,?)",(title,due_date or None,(note or "").strip()))
+        item_id=cur.lastrowid
+        db.commit()
+    with connect() as db:
+        saved=db.execute("SELECT * FROM tasks WHERE id=?",(item_id,)).fetchone()
+    if not saved:
+        raise OSError("待辦事項未能寫入永久資料庫，請稍後再試。")
+    return dict(saved)
 
 def list_tasks(show_done=True):
     sql="SELECT * FROM tasks"

@@ -5,3 +5,10 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /healthz
+    envVars:
+      - key: WORK_LIFE_DB_PATH
+        value: /var/data/worklife.db
+    disk:
+      name: work-life-data
+      mountPath: /var/data
+      sizeGB: 1
