@@ -53,3 +53,88 @@ document.addEventListener("DOMContentLoaded",()=>{
   hero.addEventListener("mouseleave",start);
   start();
  });
+
+
+// Phase 3：智慧生活輪播與首頁即時同步
+ document.addEventListener("DOMContentLoaded",()=>{
+  const panel=document.querySelector("[data-smart-life]");
+  if(!panel)return;
+  const track=panel.querySelector("[data-smart-track]");
+  const cards=[...track.children];
+  const dotsWrap=panel.querySelector("[data-smart-dots]");
+  let index=0,timer;
+  cards.forEach((_,i)=>{const b=document.createElement("button");b.type="button";b.setAttribute("aria-label",`第 ${i+1} 張`);b.onclick=()=>{show(i);restart()};dotsWrap.appendChild(b)});
+  const dots=[...dotsWrap.children];
+  const show=i=>{index=(i+cards.length)%cards.length;track.style.transform=`translateX(-${index*100}%)`;dots.forEach((d,n)=>d.classList.toggle("active",n===index))};
+  const restart=()=>{clearInterval(timer);timer=setInterval(()=>show(index+1),4600)};
+  show(0);restart();
+  panel.addEventListener("mouseenter",()=>clearInterval(timer));
+  panel.addEventListener("mouseleave",restart);
+  let startX=0;
+  panel.addEventListener("touchstart",e=>startX=e.touches[0].clientX,{passive:true});
+  panel.addEventListener("touchend",e=>{const dx=e.changedTouches[0].clientX-startX;if(Math.abs(dx)>45){show(index+(dx<0?1:-1));restart()}},{passive:true});
+
+  const text=(sel,value)=>{const el=panel.querySelector(sel);if(el&&value!==undefined&&value!==null)el.textContent=value};
+  const sync=async()=>{
+   try{
+    const r=await fetch("/api/dashboard-state",{cache:"no-store"});
+    if(!r.ok)return;
+    const d=await r.json(); if(!d.ok)return;
+    const shift=d.shift,counts=d.counts||{};
+    text("[data-smart-shift-title]",shift?`${shift.shift_name}・${shift.store_name||"今日工作地點"}`:"今天沒有排班");
+    text("[data-smart-shift-text]",shift?`上班 ${shift.start_time}，目前完成 ${counts.work_done||0}/${counts.work_total||0} 項工作。`:"可以安排生活待辦，或先把接下來的班表補齊。");
+    text("[data-smart-reminder-title]",d.reminder?d.reminder.title:"目前沒有急迫提醒");
+    text("[data-smart-reminder-text]",d.reminder?`${d.reminder.remind_time}${d.reminder.note?`・${d.reminder.note}`:""}`:"今天可以照自己的步調慢慢完成。");
+    text("[data-smart-updated]",`最後同步 ${d.updated_at}`);
+   }catch(_){ text("[data-smart-updated]","連線不穩，保留目前資料"); }
+  };
+  sync();setInterval(sync,15000);
+ });
+
+
+// Phase 4：縮小版首頁輪播＋官方資訊同步
+ document.addEventListener("DOMContentLoaded",()=>{
+  const box=document.querySelector("[data-compact-carousel]"); if(!box)return;
+  const track=box.querySelector("[data-compact-track]"), slides=[...track.children], dotsBox=box.querySelector("[data-compact-dots]");
+  let index=0,timer;
+  slides.forEach((_,i)=>{const b=document.createElement("button");b.type="button";b.onclick=()=>go(i,true);dotsBox.appendChild(b)});
+  const dots=[...dotsBox.children];
+  const go=(i,restart=false)=>{index=(i+slides.length)%slides.length;slides[index].scrollIntoView({behavior:"smooth",block:"nearest",inline:"start"});dots.forEach((d,n)=>d.classList.toggle("active",n===index));if(restart)start()};
+  const start=()=>{clearInterval(timer);timer=setInterval(()=>go(index+1),5200)};
+  box.querySelector(".prev")?.addEventListener("click",()=>go(index-1,true));box.querySelector(".next")?.addEventListener("click",()=>go(index+1,true));
+  track.addEventListener("scroll",()=>{const w=slides[0]?.offsetWidth||1;const n=Math.round(track.scrollLeft/(w+16));if(n!==index&&n<slides.length){index=n;dots.forEach((d,j)=>d.classList.toggle("active",j===index))}},{passive:true});
+  go(0);start();
+  const sync=async()=>{try{const r=await fetch("/api/dashboard-state",{cache:"no-store"});if(!r.ok)return;const d=await r.json();if(!d.ok)return;
+    const w=d.weather||{};const we=box.querySelector("[data-mini-weather]");if(we)we.textContent=`${w.temperature??"--"}°C・${w.text||"天氣資訊"}`;
+    const rt=box.querySelector("[data-mini-reminder]"),rp=box.querySelector("[data-mini-reminder-text]");if(rt)rt.textContent=d.reminder?.title||"目前沒有急迫提醒";if(rp)rp.textContent=d.reminder?`${d.reminder.remind_time}${d.reminder.note?`・${d.reminder.note}`:""}`:"今天可以照自己的步調慢慢完成。";
+    (d.official_info||[]).forEach(x=>{const el=box.querySelector(`[data-official-title="${x.kind}"]`);if(el)el.textContent=x.title});
+    const u=box.querySelector("[data-compact-updated]");if(u)u.textContent=`最後更新：${d.updated_at}`;
+  }catch(_){const u=box.querySelector("[data-compact-updated]");if(u)u.textContent="官方資料稍後重試"}};
+  sync();setInterval(sync,15000);
+ });
+
+// Phase 5 Step 1：今日班別智慧卡即時倒數與同步
+ document.addEventListener("DOMContentLoaded",()=>{
+  const card=document.querySelector("[data-smart-shift-card]"); if(!card)return;
+  const q=s=>card.querySelector(s), pad=n=>String(n).padStart(2,"0");
+  const parseToday=(value,base=new Date())=>{if(!value||!/^[0-2]\d:[0-5]\d$/.test(value))return null;const [h,m]=value.split(":").map(Number);const d=new Date(base);d.setHours(h,m,0,0);return d};
+  const updateCountdown=()=>{
+   const start=card.dataset.shiftStart,end=card.dataset.shiftEnd,now=new Date();
+   if(!start||!end){q("[data-countdown-label]").textContent="今日狀態";q("[data-shift-countdown]").textContent="自由安排";return}
+   let startAt=parseToday(start,now),endAt=parseToday(end,now);if(!startAt||!endAt)return;
+   if(endAt<=startAt)endAt.setDate(endAt.getDate()+1);
+   if(now<startAt && (startAt-now)>12*3600000)startAt.setDate(startAt.getDate()-1);
+   if(now<startAt){q("[data-countdown-label]").textContent="距離上班";endAt=startAt}
+   else if(now>=endAt){q("[data-countdown-label]").textContent="今日班別";q("[data-shift-countdown]").textContent="已下班";return}
+   else q("[data-countdown-label]").textContent="距離下班";
+   const total=Math.max(0,Math.floor((endAt-now)/1000)),h=Math.floor(total/3600),m=Math.floor(total%3600/60),s=total%60;
+   q("[data-shift-countdown]").textContent=`${pad(h)}:${pad(m)}:${pad(s)}`;
+  };
+  const setText=(sel,val)=>{const el=q(sel);if(el&&val!==undefined&&val!==null)el.textContent=val};
+  const applyTheme=name=>{card.classList.remove("is-morning","is-evening","is-night","is-off");const n=name||"";card.classList.add(!n?"is-off":n.includes("大夜")?"is-night":n.includes("晚")?"is-evening":"is-morning");setText("[data-shift-icon]",!n?"🫧":n.includes("大夜")?"🌙":n.includes("晚")?"🌆":"☀️")};
+  const sync=async()=>{try{const r=await fetch("/api/dashboard-state",{cache:"no-store"});if(!r.ok)return;const d=await r.json();if(!d.ok)return;const s=d.shift,c=d.counts||{},logs=d.daily_logistics||[];
+    if(s){const end=s.overtime?s.overtime_end:s.end_time;card.dataset.shiftStart=s.start_time||"";card.dataset.shiftEnd=end||"";setText("[data-shift-store]",`🏪 ${s.store_name||"今日店舖"}`);setText("[data-shift-name]",s.shift_name||"今日班別");setText("[data-shift-start-text]",s.start_time||"--:--");setText("[data-shift-end-text]",end||"--:--");applyTheme(s.shift_name)}else{card.dataset.shiftStart="";card.dataset.shiftEnd="";setText("[data-shift-store]","🌈 Rainbow Life");setText("[data-shift-name]","今天沒有排班");setText("[data-shift-start-text]","--:--");setText("[data-shift-end-text]","--:--");applyTheme("")}
+    const done=Number(c.work_done||0),total=Number(c.work_total||0),pct=total?Math.round(done/total*100):0;setText("[data-shift-logistics]",logs.length);setText("[data-shift-progress-text]",`${done}/${total}`);const bar=q("[data-shift-progress]");if(bar)bar.style.setProperty("--shift-progress",`${pct}%`);updateCountdown();
+   }catch(_){}}
+  updateCountdown();setInterval(updateCountdown,1000);setInterval(sync,15000);
+ });
