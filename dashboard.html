@@ -33,13 +33,27 @@
       <div class="shift-countdown"><span>⏳ <span data-countdown-label>{% if shift %}距離下班{% else %}今日狀態{% endif %}</span></span><strong data-shift-countdown>{% if shift %}計算中{% else %}自由安排{% endif %}</strong></div>
       <a class="shift-card-link" href="/quick-schedule" aria-label="查看今日班表"></a>
     </article>
-    {% for item in official_info %}
-    <article class="compact-slide official-card {{ item.kind }}">
-      <span class="compact-label">{{ item.label }}</span>
-      <div class="compact-content"><div><h2 data-official-title="{{ item.kind }}">{{ item.title }}</h2><p>{{ item.text }}</p></div><span class="compact-art">{{ item.icon }}</span></div>
-      <div class="compact-stats"><span>官方來源</span><a href="{{ item.url }}" target="_blank" rel="noopener">{{ item.button }}</a></div>
+    <article class="compact-slide family-smart-card" data-family-smart-card>
+      <div class="family-smart-head">
+        <span class="compact-label">全家官方活動</span>
+        <span class="family-official-badge">官方</span>
+      </div>
+      <div class="family-smart-main">
+        <span class="family-smart-icon">🏪</span>
+        <div>
+          <small data-family-category>{{ official_info[0].category if official_info else '全家官方' }}</small>
+          <h2 data-family-title>{{ official_info[0].title if official_info else '查看全家官方最新活動' }}</h2>
+          <p data-family-period>{{ official_info[0].period if official_info else '官方資料稍後自動重試' }}</p>
+        </div>
+      </div>
+      <div class="family-mini-progress"><i data-family-progress></i></div>
+      <div class="family-smart-nav">
+        <button type="button" data-family-prev aria-label="上一則全家活動">‹</button>
+        <span data-family-counter>1 / {{ official_info|length if official_info else 1 }}</span>
+        <button type="button" data-family-next aria-label="下一則全家活動">›</button>
+      </div>
+      <div class="compact-stats"><span data-family-updated>每 30 分鐘更新</span><a data-family-link href="{{ official_info[0].url if official_info else 'https://www.family.com.tw/Marketing/zh/Event' }}" target="_blank" rel="noopener">查看官方活動</a></div>
     </article>
-    {% endfor %}
     <article class="compact-slide weather-smart-card" data-smart-weather-card>
       <div class="weather-smart-head">
         <span class="compact-label">台中太平天氣</span>

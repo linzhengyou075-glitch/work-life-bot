@@ -174,3 +174,15 @@
 .weather-smart-tip{display:flex;align-items:center;gap:7px;margin-top:9px;padding:8px 9px;border-radius:12px;background:rgba(255,255,255,.48)}.weather-smart-tip span{font-size:15px}.weather-smart-tip p{margin:0;font-size:11px;line-height:1.4;font-weight:800;color:#56677e}
 @keyframes weatherFloat{50%{transform:translate(-8px,8px) scale(1.05)}}
 @media(max-width:760px){.weather-smart-card{min-height:285px}.weather-smart-main{margin:11px 0 9px}.weather-smart-icon{font-size:43px}.weather-smart-main strong{font-size:31px}.weather-smart-grid div{padding:7px 4px}.weather-smart-tip{padding:7px 8px}}
+
+
+/* Phase 5 Step 3：全家官方活動智慧卡 */
+.family-smart-card{position:relative;overflow:hidden;background:linear-gradient(145deg,#fff0f5,#fff8fb 58%,#f5efff);color:#493448}
+.family-smart-card:before{content:"";position:absolute;width:155px;height:155px;right:-58px;top:-70px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.95),rgba(255,112,158,.18) 58%,transparent 72%);animation:familyGlow 5.5s ease-in-out infinite}
+.family-smart-head,.family-smart-main,.family-mini-progress,.family-smart-nav,.family-smart-card .compact-stats{position:relative;z-index:2}
+.family-smart-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.family-smart-card .compact-label{background:#eb4f83}.family-official-badge{padding:5px 9px;border-radius:999px;background:rgba(255,255,255,.72);font-size:10px;font-weight:900;color:#d83d71;border:1px solid rgba(235,79,131,.16)}
+.family-smart-main{display:flex;align-items:flex-start;gap:12px;margin:16px 0 11px}.family-smart-icon{font-size:44px;filter:drop-shadow(0 8px 13px rgba(200,57,106,.14));animation:float 4.2s ease-in-out infinite}.family-smart-main small{display:inline-block;margin-bottom:5px;font-size:10px;font-weight:900;color:#d44f7a}.family-smart-main h2{margin:0;font-size:18px;line-height:1.35;color:#50384c;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.family-smart-main p{margin:7px 0 0;font-size:11px;font-weight:800;color:#927184}
+.family-mini-progress{height:5px;border-radius:999px;background:rgba(218,82,128,.12);overflow:hidden}.family-mini-progress i{display:block;width:0;height:100%;border-radius:inherit;background:linear-gradient(90deg,#ff739f,#9d79ff);transition:width .14s linear}
+.family-smart-nav{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:8px}.family-smart-nav button{width:25px;height:25px;border:0;border-radius:50%;background:rgba(255,255,255,.74);color:#d24978;font-size:18px;line-height:1;cursor:pointer;box-shadow:0 4px 10px rgba(157,64,102,.09)}.family-smart-nav span{min-width:42px;text-align:center;font-size:10px;font-weight:900;color:#8a6679}
+@keyframes familyGlow{50%{transform:translate(-8px,8px) scale(1.07);opacity:.78}}
+@media(max-width:760px){.family-smart-card{min-height:285px}.family-smart-main{margin:12px 0 9px}.family-smart-icon{font-size:40px}.family-smart-main h2{font-size:17px;-webkit-line-clamp:2}}

@@ -163,3 +163,31 @@ document.addEventListener("DOMContentLoaded",()=>{
  const sync=async()=>{try{const r=await fetch("/api/dashboard-state",{cache:"no-store"});if(!r.ok)throw new Error();const d=await r.json();if(d.ok)apply(d.weather)}catch(_){set("[data-weather-updated]","連線不穩，保留上次資料")}};
  sync();setInterval(sync,15*60*1000);
 });
+
+
+// Phase 5 Step 3：全家官方活動智慧卡（每 30 分鐘更新）
+document.addEventListener("DOMContentLoaded",()=>{
+ const card=document.querySelector("[data-family-smart-card]"); if(!card)return;
+ const q=s=>card.querySelector(s), set=(s,v)=>{const el=q(s);if(el&&v!==undefined&&v!==null)el.textContent=v};
+ let items=[],index=0,rotateTimer,progressTimer,progress=0;
+ const show=i=>{
+  if(!items.length)return;
+  index=(i+items.length)%items.length;const item=items[index];
+  set("[data-family-category]",item.category||"全家官方");set("[data-family-title]",item.title||"查看全家官方最新活動");
+  set("[data-family-period]",item.period||"詳見官方活動頁");set("[data-family-counter]",`${index+1} / ${items.length}`);
+  const link=q("[data-family-link]");if(link)link.href=item.url||"https://www.family.com.tw/Marketing/zh/Event";
+  progress=0;const bar=q("[data-family-progress]");if(bar)bar.style.width="0%";
+ };
+ const startRotation=()=>{
+  clearInterval(rotateTimer);clearInterval(progressTimer);progress=0;
+  rotateTimer=setInterval(()=>show(index+1),7000);
+  progressTimer=setInterval(()=>{progress=(progress+2)%102;const bar=q("[data-family-progress]");if(bar)bar.style.width=`${Math.min(progress,100)}%`},140);
+ };
+ q("[data-family-prev]")?.addEventListener("click",()=>{show(index-1);startRotation()});
+ q("[data-family-next]")?.addEventListener("click",()=>{show(index+1);startRotation()});
+ const sync=async()=>{try{
+   const r=await fetch("/api/dashboard-state",{cache:"no-store"});if(!r.ok)throw new Error();const d=await r.json();
+   if(d.ok&&Array.isArray(d.official_info)&&d.official_info.length){items=d.official_info;show(Math.min(index,items.length-1));set("[data-family-updated]",`更新 ${new Date().toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit"})}`);startRotation()}
+  }catch(_){set("[data-family-updated]","連線不穩，保留上次活動")}};
+ sync();setInterval(sync,30*60*1000);
+});

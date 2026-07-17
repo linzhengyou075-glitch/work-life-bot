@@ -4,6 +4,7 @@ from pathlib import Path
 import asyncio
 import json
 import sqlite3
+import re
 import urllib.parse
 import urllib.request
 from html.parser import HTMLParser
@@ -145,52 +146,90 @@ def get_taiping_weather():
 _OFFICIAL_INFO_CACHE = {"at": None, "items": None}
 
 class _FamilyEventParser(HTMLParser):
-    """Extract readable event labels from FamilyMart's official activity page."""
+    """擷取全家官方活動頁可閱讀文字，不使用非官方活動來源。"""
     def __init__(self):
         super().__init__()
         self.skip = 0
         self.texts = []
     def handle_starttag(self, tag, attrs):
-        if tag in {"script", "style", "noscript"}: self.skip += 1
+        if tag in {"script", "style", "noscript", "svg"}:
+            self.skip += 1
     def handle_endtag(self, tag):
-        if tag in {"script", "style", "noscript"} and self.skip: self.skip -= 1
+        if tag in {"script", "style", "noscript", "svg"} and self.skip:
+            self.skip -= 1
     def handle_data(self, data):
-        if self.skip: return
+        if self.skip:
+            return
         value = " ".join(data.split()).strip()
-        if 4 <= len(value) <= 42:
+        if 2 <= len(value) <= 90:
             self.texts.append(value)
 
-def _fetch_family_event_title():
-    url = "https://www.family.com.tw/Marketing/zh/Event"
-    req = urllib.request.Request(url, headers={"User-Agent":"Mozilla/5.0 WorkLife/4.4"})
-    with urllib.request.urlopen(req, timeout=7) as response:
-        html = response.read().decode("utf-8", "ignore")
-    parser = _FamilyEventParser(); parser.feed(html)
-    ignored = {"最新活動","便利快訊","會員優惠","長期活動","支付優惠","鮮食優惠","全家便利商店"}
-    for value in parser.texts:
-        if value in ignored: continue
-        if any(key in value for key in ("活動", "優惠", "折", "抽", "贈", "買", "咖啡", "會員")):
-            return value
-    return "查看全家官方最新活動"
+def _clean_family_events(texts):
+    date_pattern = re.compile(r"^(20\d{2}/\d{2}/\d{2})\s*[-–－~～]\s*(20\d{2}/\d{2}/\d{2})$")
+    category_names = {"主題活動", "會員優惠", "支付優惠", "鮮食優惠", "抽獎活動", "長期活動"}
+    ignored = {
+        "最新活動", "便利快訊", "商品情報", "各項查詢", "便利服務", "全家相關網站",
+        "全家便利商店", "Image", "上一頁", "下一頁", "更多活動"
+    }
+    events=[]
+    pending_category="官方活動"
+    pending_period=""
+    for value in texts:
+        if value in ignored:
+            continue
+        if value in category_names:
+            if value != "長期活動": pending_category=value
+            else: pending_period="長期活動"
+            continue
+        match=date_pattern.match(value)
+        if match:
+            pending_period=f"{match.group(1)}－{match.group(2)}"
+            continue
+        if len(value)<5 or value.startswith("http"):
+            continue
+        if any(word in value for word in ("活動", "優惠", "加購", "回饋", "咖啡", "點數", "集章", "折", "贈", "買", "兌")):
+            if value not in {x["title"] for x in events}:
+                events.append({
+                    "title":value[:58],
+                    "period":pending_period or "詳見官方活動頁",
+                    "category":pending_category,
+                    "url":"https://www.family.com.tw/Marketing/zh/Event"
+                })
+                pending_period=""
+            if len(events)>=6:
+                break
+    return events
+
+def _fetch_family_events():
+    url="https://www.family.com.tw/Marketing/zh/Event"
+    req=urllib.request.Request(url,headers={"User-Agent":"Mozilla/5.0 WorkLife/5.0"})
+    with urllib.request.urlopen(req,timeout=7) as response:
+        html=response.read().decode("utf-8","ignore")
+    parser=_FamilyEventParser(); parser.feed(html)
+    return _clean_family_events(parser.texts)
 
 def get_official_info():
-    """Compact carousel feed. All destinations are official websites."""
-    now = datetime.now()
-    cached_at = _OFFICIAL_INFO_CACHE.get("at")
-    if cached_at and _OFFICIAL_INFO_CACHE.get("items") and (now-cached_at).total_seconds() < 1800:
-        return _OFFICIAL_INFO_CACHE["items"]
+    """全家官方活動推播；失敗時保留上次成功資料。"""
+    now=datetime.now()
+    cached_at=_OFFICIAL_INFO_CACHE.get("at")
+    cached=_OFFICIAL_INFO_CACHE.get("items") or []
+    if cached_at and cached and (now-cached_at).total_seconds()<1800:
+        return cached
     try:
-        family_title = _fetch_family_event_title()
+        events=_fetch_family_events()
+        if not events:
+            raise ValueError("no family events parsed")
+        _OFFICIAL_INFO_CACHE.update(at=now,items=events)
+        return events
     except Exception:
-        previous = _OFFICIAL_INFO_CACHE.get("items") or []
-        family_title = next((x.get("title") for x in previous if x.get("kind")=="family"), "查看全家官方最新活動")
-    items = [
-        {"kind":"family","icon":"🏪","label":"全家最新活動","title":family_title,
-         "text":"內容由全家官方活動頁取得，點擊查看完整活動與期間。",
-         "url":"https://www.family.com.tw/Marketing/zh/Event","button":"查看官方活動"},
-    ]
-    _OFFICIAL_INFO_CACHE.update(at=now, items=items)
-    return items
+        if cached:
+            return cached
+        return [{
+            "title":"查看全家官方最新活動",
+            "period":"官方資料稍後自動重試",
+            "category":"全家官方",
+            "url":"https://www.family.com.tw/Marketing/zh/Event"
+        }]
 
 def week_schedule(anchor=None):
     anchor=anchor or date.today()
