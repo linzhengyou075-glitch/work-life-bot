@@ -138,3 +138,28 @@ document.addEventListener("DOMContentLoaded",()=>{
    }catch(_){}}
   updateCountdown();setInterval(updateCountdown,1000);setInterval(sync,15000);
  });
+
+// Phase 5 Step 2：官方天氣智慧卡（每 15 分鐘更新）
+document.addEventListener("DOMContentLoaded",()=>{
+ const card=document.querySelector("[data-smart-weather-card]"); if(!card)return;
+ const q=s=>card.querySelector(s);
+ const set=(s,v)=>{const el=q(s);if(el&&v!==undefined&&v!==null)el.textContent=v};
+ const weatherTip=w=>{
+  const rain=Number(w.rain),temp=Number(w.temperature),wind=Number(w.wind);
+  if(Number.isFinite(rain)&&rain>=50)return "外出記得攜帶雨具。";
+  if(Number.isFinite(temp)&&temp>=30)return "天氣偏熱，記得補充水分。";
+  if(Number.isFinite(wind)&&wind>=25)return "風勢較強，外出請留意安全。";
+  if(Number.isFinite(temp)&&temp<=18)return "早晚偏涼，建議帶件薄外套。";
+  return "出門前再確認即時天氣。";
+ };
+ const apply=w=>{
+  if(!w)return;
+  set("[data-weather-icon]",w.icon||"🌤️");set("[data-weather-temperature]",`${w.temperature??"--"}°`);
+  set("[data-weather-text]",w.text||"天氣資訊");set("[data-weather-apparent]",w.apparent==="--"?"--":`${w.apparent}°`);
+  set("[data-weather-rain]",w.rain==="--"?"--":`${w.rain}%`);set("[data-weather-wind]",w.wind==="--"?"--":`${w.wind} km/h`);
+  set("[data-weather-source]",w.source||"天氣服務");set("[data-weather-tip]",weatherTip(w));
+  set("[data-weather-updated]",`更新 ${new Date().toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit"})}`);
+ };
+ const sync=async()=>{try{const r=await fetch("/api/dashboard-state",{cache:"no-store"});if(!r.ok)throw new Error();const d=await r.json();if(d.ok)apply(d.weather)}catch(_){set("[data-weather-updated]","連線不穩，保留上次資料")}};
+ sync();setInterval(sync,15*60*1000);
+});

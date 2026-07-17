@@ -6,6 +6,7 @@ import json
 import sqlite3
 import urllib.parse
 import urllib.request
+from html.parser import HTMLParser
 
 from fastapi import FastAPI, Request, Form, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
@@ -39,7 +40,7 @@ WEATHER_CODES = {
     95:("⛈️","雷雨"),96:("⛈️","雷雨伴冰雹"),99:("⛈️","強雷雨伴冰雹")
 }
 
-def get_taiping_weather():
+def get_open_meteo_weather():
     now=datetime.now()
     cached_at=_WEATHER_CACHE.get("at")
     if cached_at and _WEATHER_CACHE.get("data") and (now-cached_at).total_seconds()<900:
@@ -74,6 +75,123 @@ def get_taiping_weather():
         if stale: return stale
         return {"ok":False,"icon":"🌤️","text":"暫時無法取得","temperature":"--","apparent":"--","rain":"--","wind":"--","location":"台中太平"}
 
+
+def get_cwa_taiping_weather():
+    """中央氣象署官方鄉鎮預報；需在部署環境設定 CWA_API_KEY。"""
+    if not settings.cwa_api_key:
+        return None
+    params=urllib.parse.urlencode({
+        "Authorization":settings.cwa_api_key,
+        "LocationName":"太平區",
+        "ElementName":"天氣現象,平均溫度,體感溫度,12小時降雨機率,風速"
+    })
+    req=urllib.request.Request(
+        "https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-D0047-073?"+params,
+        headers={"User-Agent":"WorkLife/4.2"}
+    )
+    with urllib.request.urlopen(req,timeout=6) as response:
+        payload=json.load(response)
+    locations=((payload.get("records") or {}).get("Locations") or (payload.get("records") or {}).get("locations") or [])
+    if not locations:
+        return None
+    towns=locations[0].get("Location") or locations[0].get("location") or []
+    town=next((x for x in towns if (x.get("LocationName") or x.get("locationName"))=="太平區"), towns[0] if towns else None)
+    if not town:
+        return None
+    elements=town.get("WeatherElement") or town.get("weatherElement") or []
+    values={}
+    for element in elements:
+        name=element.get("ElementName") or element.get("elementName") or ""
+        periods=element.get("Time") or element.get("time") or []
+        if not periods:
+            continue
+        period=periods[0]
+        item=(period.get("ElementValue") or period.get("elementValue") or [{}])[0]
+        values[name]=item.get("Weather") or item.get("Temperature") or item.get("ProbabilityOfPrecipitation") or item.get("WindSpeed") or item.get("value")
+    text=str(values.get("天氣現象") or "天氣資訊")
+    icon="☀️" if "晴" in text else "⛈️" if "雷" in text else "🌧️" if "雨" in text else "☁️" if "陰" in text else "⛅"
+    def number(value, default="--"):
+        try:return round(float(value))
+        except:return default
+    return {
+        "ok":True,"icon":icon,"text":text,
+        "temperature":number(values.get("平均溫度")),
+        "apparent":number(values.get("體感溫度")),
+        "rain":number(values.get("12小時降雨機率")),
+        "wind":number(values.get("風速")),
+        "location":"台中太平",
+        "source":"中央氣象署",
+        "source_url":"https://www.cwa.gov.tw/V8/C/W/Town/Town.html?TID=6602700"
+    }
+
+def get_taiping_weather():
+    now=datetime.now()
+    cached_at=_WEATHER_CACHE.get("at")
+    if cached_at and _WEATHER_CACHE.get("data") and (now-cached_at).total_seconds()<900:
+        return _WEATHER_CACHE["data"]
+    try:
+        official=get_cwa_taiping_weather()
+        if official:
+            _WEATHER_CACHE.update(at=now,data=official)
+            return official
+    except Exception:
+        pass
+    fallback=get_open_meteo_weather()
+    fallback["source"]="備援天氣服務"
+    fallback["source_url"]="https://www.cwa.gov.tw/V8/C/W/Town/Town.html?TID=6602700"
+    return fallback
+
+
+_OFFICIAL_INFO_CACHE = {"at": None, "items": None}
+
+class _FamilyEventParser(HTMLParser):
+    """Extract readable event labels from FamilyMart's official activity page."""
+    def __init__(self):
+        super().__init__()
+        self.skip = 0
+        self.texts = []
+    def handle_starttag(self, tag, attrs):
+        if tag in {"script", "style", "noscript"}: self.skip += 1
+    def handle_endtag(self, tag):
+        if tag in {"script", "style", "noscript"} and self.skip: self.skip -= 1
+    def handle_data(self, data):
+        if self.skip: return
+        value = " ".join(data.split()).strip()
+        if 4 <= len(value) <= 42:
+            self.texts.append(value)
+
+def _fetch_family_event_title():
+    url = "https://www.family.com.tw/Marketing/zh/Event"
+    req = urllib.request.Request(url, headers={"User-Agent":"Mozilla/5.0 WorkLife/4.4"})
+    with urllib.request.urlopen(req, timeout=7) as response:
+        html = response.read().decode("utf-8", "ignore")
+    parser = _FamilyEventParser(); parser.feed(html)
+    ignored = {"最新活動","便利快訊","會員優惠","長期活動","支付優惠","鮮食優惠","全家便利商店"}
+    for value in parser.texts:
+        if value in ignored: continue
+        if any(key in value for key in ("活動", "優惠", "折", "抽", "贈", "買", "咖啡", "會員")):
+            return value
+    return "查看全家官方最新活動"
+
+def get_official_info():
+    """Compact carousel feed. All destinations are official websites."""
+    now = datetime.now()
+    cached_at = _OFFICIAL_INFO_CACHE.get("at")
+    if cached_at and _OFFICIAL_INFO_CACHE.get("items") and (now-cached_at).total_seconds() < 1800:
+        return _OFFICIAL_INFO_CACHE["items"]
+    try:
+        family_title = _fetch_family_event_title()
+    except Exception:
+        previous = _OFFICIAL_INFO_CACHE.get("items") or []
+        family_title = next((x.get("title") for x in previous if x.get("kind")=="family"), "查看全家官方最新活動")
+    items = [
+        {"kind":"family","icon":"🏪","label":"全家最新活動","title":family_title,
+         "text":"內容由全家官方活動頁取得，點擊查看完整活動與期間。",
+         "url":"https://www.family.com.tw/Marketing/zh/Event","button":"查看官方活動"},
+    ]
+    _OFFICIAL_INFO_CACHE.update(at=now, items=items)
+    return items
+
 def week_schedule(anchor=None):
     anchor=anchor or date.today()
     start=anchor-timedelta(days=anchor.weekday())
@@ -86,7 +204,7 @@ def week_schedule(anchor=None):
     return output
 
 
-app=FastAPI(title="Work Life",version="4.1.1")
+app=FastAPI(title="Work Life",version="4.1.0")
 app.add_middleware(
     SessionMiddleware,
     secret_key=settings.session_secret,
@@ -95,17 +213,6 @@ app.add_middleware(
     https_only=settings.base_url.startswith("https://")
 )
 templates=Jinja2Templates(directory=str(BASE_DIR))
-
-@app.middleware("http")
-async def disable_dynamic_cache(request: Request, call_next):
-    """避免手機瀏覽器重新整理時顯示儲存前的快取頁面。"""
-    response = await call_next(request)
-    if request.url.path.startswith("/static/"):
-        return response
-    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
-    return response
 
 @app.get("/static/style.css")
 def static_style(): return FileResponse(BASE_DIR / "style.css",media_type="text/css")
@@ -214,9 +321,14 @@ def dashboard(request:Request):
         "reminders":[x for x in list_reminders(False) if x["remind_date"]==today],
         "counts":dashboard_counts(today),
         "weather":get_taiping_weather(),
+        "official_info":get_official_info(),
         "week_days":week_schedule(),
         "now_text":datetime.now().strftime("%Y/%m/%d %H:%M"),
         "today_label":datetime.now().strftime("%m月%d日"),
+        "life_links":[
+            {"icon":"🏪","title":"全家最新活動","text":"查看全家官方最新優惠與主題活動","url":"https://www.family.com.tw/Marketing/zh/Event","tag":"官方"},
+            {"icon":"🎫","title":"會員優惠","text":"會員點數、兌換與 APP 優惠資訊","url":"https://www.family.com.tw/Marketing/zh/Member","tag":"官方"},
+        ],
     })
 
 @app.get("/quick-schedule",response_class=HTMLResponse)
@@ -483,18 +595,8 @@ def tasks_page(request:Request):
 def task_add(request:Request,title:str=Form(...),due_date:str=Form(""),note:str=Form("")):
     user,resp=protected(request,"/tasks")
     if resp:return resp
-    try:
-        add_task(title,due_date,note)
-    except (ValueError, OSError) as exc:
-        return templates.TemplateResponse("tasks.html",{
-            "request":request,"user":user,"tasks":list_tasks(),"save_error":str(exc)
-        },status_code=400)
-    except Exception:
-        return templates.TemplateResponse("tasks.html",{
-            "request":request,"user":user,"tasks":list_tasks(),
-            "save_error":"儲存失敗，請稍後再試；原本資料沒有被覆蓋。"
-        },status_code=500)
-    return RedirectResponse("/tasks?saved=1",303)
+    add_task(title,due_date,note)
+    return RedirectResponse("/tasks",303)
 
 @app.post("/tasks/{item_id}/toggle")
 def task_toggle(request:Request,item_id:int):
@@ -533,13 +635,18 @@ def dashboard_state(request:Request):
     user,resp=protected(request,"/dashboard")
     if resp:return JSONResponse({"ok":False},401)
     today=date.today().isoformat()
+    reminders=[x for x in list_reminders(False) if x["remind_date"]==today]
     return {
         "ok":True,
         "shift":get_shift(today),
         "daily_work":list_daily_work(today),
         "daily_logistics":list_daily_logistics(today),
         "attendance":attendance_for(today),
-        "counts":dashboard_counts(today)
+        "counts":dashboard_counts(today),
+        "weather":get_taiping_weather(),
+        "official_info":get_official_info(),
+        "reminder":reminders[0] if reminders else None,
+        "updated_at":datetime.now().strftime("%H:%M:%S")
     }
 
 @app.post("/webhook")
