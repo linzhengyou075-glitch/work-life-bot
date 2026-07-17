@@ -1,13 +1,60 @@
 <!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/style.css"><title>Work Life 生活助手</title></head>
 <body class="wl-body store-body worklife-home"><div class="ambient ambient-one"></div><div class="ambient ambient-two"></div><div class="ambient ambient-three"></div><header class="wl-header store-header"><a href="/dashboard" class="wl-brand"><img src="/static/worklife_mascot.png"><b>Work Life</b><small>生活助手</small></a><nav><a class="active" href="/dashboard">⌂ 首頁</a><a href="/quick-schedule">📅 快速班表</a><a href="/work-records">☑ 工作事項</a><a href="/logistics-settings">🚚 物流設定</a><a href="/notifications">🔔 提醒</a><a href="/profile">⚙ 設定</a></nav><div class="wl-user"><img src="{{ user.pictureUrl or '/static/worklife_mascot.png' }}"><span>{{ user.displayName }}</span></div></header>
 <main class="store-main">
+
+<section class="rainbow-hero" data-home-carousel>
+  <div class="rainbow-hero-track">
+    <article class="rainbow-slide shift-slide {{ 'has-shift' if shift else 'rest-day' }}">
+      <div class="hero-copy">
+        <span class="hero-kicker">🌈 Rainbow Life・今天</span>
+        <h1>{{ user.displayName }}，今天也照自己的步調前進</h1>
+        {% if shift %}
+        <p>今日是 <b>{{ shift.icon }} {{ shift.shift_name }}</b>，時間 {{ shift.start_time }}－{{ shift.overtime_end if shift.overtime else shift.end_time }}。</p>
+        <div class="hero-pills"><span>📍 {{ shift.store_name or '今日工作地點' }}</span><span>☑ {{ counts.work_done }}/{{ counts.work_total }} 項已完成</span></div>
+        {% else %}
+        <p>今天尚未排班，留一點時間休息，也可以先安排生活待辦。</p>
+        <div class="hero-pills"><span>🫧 休息日模式</span><span>📝 {{ tasks|length }} 個待辦</span></div>
+        {% endif %}
+      </div>
+      <div class="hero-visual today-animation">
+        <div class="rainbow-ring"></div>
+        <img src="/static/worklife_mascot.png" alt="Work Life 主題人物">
+        <span class="spark spark-one">✦</span><span class="spark spark-two">✧</span><span class="spark spark-three">✦</span>
+      </div>
+    </article>
+    <article class="rainbow-slide reminder-slide">
+      <div class="hero-copy">
+        <span class="hero-kicker">🔔 今日提醒</span>
+        {% if reminders %}
+        <h2>{{ reminders[0].title }}</h2>
+        <p>{{ reminders[0].note or reminders[0].remind_time }}</p>
+        {% else %}
+        <h2>目前沒有急迫提醒</h2>
+        <p>今天的節奏很乾淨，可以從最重要的一件事開始。</p>
+        {% endif %}
+        <a class="hero-link" href="/notifications">查看全部提醒 →</a>
+      </div>
+      <div class="hero-icon">🔔</div>
+    </article>
+    <article class="rainbow-slide weather-slide">
+      <div class="hero-copy">
+        <span class="hero-kicker">🌤 太平今日天氣</span>
+        <h2>{{ weather.icon }} {{ weather.temperature }}°・{{ weather.text }}</h2>
+        <p>體感 {{ weather.apparent }}°，降雨機率 {{ weather.rain }}{% if weather.rain != '--' %}%{% endif %}。出門前記得再看一次天氣。</p>
+        <a class="hero-link" href="#today-weather">查看天氣卡片 →</a>
+      </div>
+      <div class="hero-icon weather-orb">{{ weather.icon }}</div>
+    </article>
+  </div>
+  <div class="rainbow-hero-dots"><button class="active" aria-label="第 1 張"></button><button aria-label="第 2 張"></button><button aria-label="第 3 張"></button></div>
+</section>
 <section class="store-statusbar glass-bar"><div><b>操作者：{{ user.displayName }}</b><span>{{ now_text }}</span></div><div class="ticker"><strong>最新消息</strong><span>{% if reminders %}{{ reminders[0].title }}：{{ reminders[0].note or reminders[0].remind_time }}{% else %}系統運作正常，今天沒有緊急提醒。{% endif %}</span></div><a href="/logout">登出</a></section>
 
 <div class="store-layout"><section class="store-center">
 <section class="week-board"><div class="month-title"><span>本週</span><b>{{ today_label }}</b></div>{% for d in week_days %}<article class="week-day {{ 'today' if d.today else '' }}"><header><b>{{ d.day }}</b><span>（{{ d.weekday }}）</span>{% if d.today %}<em>本日</em>{% endif %}</header>{% if d.shift %}<div class="week-weather">{{ d.shift.icon }} {{ d.shift.shift_name }}</div><small>{{ d.shift.start_time }}－{{ d.shift.overtime_end if d.shift.overtime else d.shift.end_time }}</small>{% else %}<div class="week-empty">尚未排班</div><small>點擊設定班表</small>{% endif %}<a href="/quick-schedule">✎</a></article>{% endfor %}</section>
 
 <section class="ops-grid">
-<article class="ops-card weather-card"><div class="ops-title"><span>🌤️</span><b>太平天氣</b></div><div class="weather-main"><strong>{{ weather.icon }} {{ weather.temperature }}°</strong><div><b>{{ weather.text }}</b><span>{{ weather.location }}・體感 {{ weather.apparent }}°</span></div></div><div class="weather-stats"><span>降雨機率 <b>{{ weather.rain }}{% if weather.rain != '--' %}%{% endif %}</b></span><span>風速 <b>{{ weather.wind }}{% if weather.wind != '--' %} km/h{% endif %}</b></span></div>{% if not weather.ok %}<small class="weather-error">天氣服務暫時無回應，稍後會自動重試。</small>{% endif %}</article>
+<article id="today-weather" class="ops-card weather-card"><div class="ops-title"><span>🌤️</span><b>太平天氣</b></div><div class="weather-main"><strong>{{ weather.icon }} {{ weather.temperature }}°</strong><div><b>{{ weather.text }}</b><span>{{ weather.location }}・體感 {{ weather.apparent }}°</span></div></div><div class="weather-stats"><span>降雨機率 <b>{{ weather.rain }}{% if weather.rain != '--' %}%{% endif %}</b></span><span>風速 <b>{{ weather.wind }}{% if weather.wind != '--' %} km/h{% endif %}</b></span></div>{% if not weather.ok %}<small class="weather-error">天氣服務暫時無回應，稍後會自動重試。</small>{% endif %}</article>
 <article class="ops-card"><div class="ops-title"><span>🕒</span><b>今日班表</b></div>{% if shift %}<div class="shift-focus">{{ shift.icon }} {{ shift.shift_name }}<small>{{ shift.start_time }}－{{ shift.overtime_end if shift.overtime else shift.end_time }}</small></div>{% else %}<div class="empty-focus">尚未排班</div>{% endif %}<a class="store-action" href="/quick-schedule">快速登錄班表</a></article>
 <article class="ops-card"><div class="ops-title"><span>☑</span><b>工作進度</b></div><div class="metric"><strong>{{ counts.work_done }}</strong><span>/ {{ counts.work_total }} 項</span></div><div class="progress"><i style="--p:{{ ((counts.work_done/counts.work_total*100) if counts.work_total else 0)|round }}%"></i></div><a class="store-action secondary" href="/work-records">開啟工作頁</a></article>
 <article class="ops-card"><div class="ops-title"><span>💰</span><b>今日短收</b></div><div class="metric shortage"><strong>${{ counts.shortage_total }}</strong></div><a class="store-action secondary" href="/work-records">登錄短收</a></article>

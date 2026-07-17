@@ -37,3 +37,19 @@ document.addEventListener("DOMContentLoaded",()=>{
    modal.hidden=false;
  }));
 });
+
+// Phase 1：Rainbow Life 首頁輪播與「當天才顯示」動態
+ document.addEventListener("DOMContentLoaded",()=>{
+  document.body.classList.add("is-today-active");
+  const hero=document.querySelector("[data-home-carousel]");
+  if(!hero)return;
+  const track=hero.querySelector(".rainbow-hero-track");
+  const dots=[...hero.querySelectorAll(".rainbow-hero-dots button")];
+  let index=0,timer;
+  const show=n=>{index=n;track.style.transform=`translateX(-${n*100}%)`;dots.forEach((d,i)=>d.classList.toggle("active",i===n))};
+  const start=()=>{clearInterval(timer);timer=setInterval(()=>show((index+1)%dots.length),5200)};
+  dots.forEach((dot,i)=>dot.addEventListener("click",()=>{show(i);start()}));
+  hero.addEventListener("mouseenter",()=>clearInterval(timer));
+  hero.addEventListener("mouseleave",start);
+  start();
+ });
