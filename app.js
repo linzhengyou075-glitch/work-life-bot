@@ -117,13 +117,13 @@ document.addEventListener("DOMContentLoaded",()=>{
  document.addEventListener("DOMContentLoaded",()=>{
   const card=document.querySelector("[data-smart-shift-card]"); if(!card)return;
   const q=s=>card.querySelector(s), pad=n=>String(n).padStart(2,"0");
-  const parseToday=(value,base=new Date())=>{if(!value||!/^[0-2]\d:[0-5]\d$/.test(value))return null;const [h,m]=value.split(":").map(Number);const d=new Date(base);d.setHours(h,m,0,0);return d};
+  const parseShiftDate=(dateValue,timeValue,base=new Date())=>{if(!timeValue||!/^[0-2]\d:[0-5]\d$/.test(timeValue))return null;const [h,m]=timeValue.split(":").map(Number);if(dateValue&&/^\d{4}-\d{2}-\d{2}$/.test(dateValue)){const [y,mo,d]=dateValue.split("-").map(Number);return new Date(y,mo-1,d,h,m,0,0)}const result=new Date(base);result.setHours(h,m,0,0);return result};
   const updateCountdown=()=>{
-   const start=card.dataset.shiftStart,end=card.dataset.shiftEnd,now=new Date();
+   const start=card.dataset.shiftStart,end=card.dataset.shiftEnd,startDate=card.dataset.shiftStartDate,endDate=card.dataset.shiftEndDate,now=new Date();
    if(!start||!end){q("[data-countdown-label]").textContent="今日狀態";q("[data-shift-countdown]").textContent="自由安排";return}
-   let startAt=parseToday(start,now),endAt=parseToday(end,now);if(!startAt||!endAt)return;
-   if(endAt<=startAt)endAt.setDate(endAt.getDate()+1);
-   if(now<startAt && (startAt-now)>12*3600000)startAt.setDate(startAt.getDate()-1);
+   let startAt=parseShiftDate(startDate,start,now),endAt=parseShiftDate(endDate,end,now);if(!startAt||!endAt)return;
+   if(!endDate&&endAt<=startAt)endAt.setDate(endAt.getDate()+1);
+   if(!startDate&&now<startAt && (startAt-now)>12*3600000)startAt.setDate(startAt.getDate()-1);
    if(now<startAt){q("[data-countdown-label]").textContent="距離上班";endAt=startAt}
    else if(now>=endAt){q("[data-countdown-label]").textContent="今日班別";q("[data-shift-countdown]").textContent="已下班";return}
    else q("[data-countdown-label]").textContent="距離下班";
@@ -133,7 +133,7 @@ document.addEventListener("DOMContentLoaded",()=>{
   const setText=(sel,val)=>{const el=q(sel);if(el&&val!==undefined&&val!==null)el.textContent=val};
   const applyTheme=name=>{card.classList.remove("is-morning","is-evening","is-night","is-off");const n=name||"";card.classList.add(!n?"is-off":n.includes("大夜")?"is-night":n.includes("晚")?"is-evening":"is-morning");setText("[data-shift-icon]",!n?"🫧":n.includes("大夜")?"🌙":n.includes("晚")?"🌆":"☀️")};
   const sync=async()=>{try{const r=await fetch("/api/dashboard-state",{cache:"no-store"});if(!r.ok)return;const d=await r.json();if(!d.ok)return;const s=d.shift,c=d.counts||{},logs=d.daily_logistics||[];
-    if(s){const end=s.overtime?s.overtime_end:s.end_time;card.dataset.shiftStart=s.start_time||"";card.dataset.shiftEnd=end||"";setText("[data-shift-store]",`🏪 ${s.store_name||"今日店舖"}`);setText("[data-shift-name]",s.shift_name||"今日班別");setText("[data-shift-start-text]",s.start_time||"--:--");setText("[data-shift-end-text]",end||"--:--");applyTheme(s.shift_name)}else{card.dataset.shiftStart="";card.dataset.shiftEnd="";setText("[data-shift-store]","🌈 Rainbow Life");setText("[data-shift-name]","今天沒有排班");setText("[data-shift-start-text]","--:--");setText("[data-shift-end-text]","--:--");applyTheme("")}
+    if(s){const end=s.overtime?s.overtime_end:s.end_time;card.dataset.shiftStart=s.start_time||"";card.dataset.shiftEnd=end||"";card.dataset.shiftStartDate=s.start_date||"";card.dataset.shiftEndDate=s.end_date||"";setText("[data-shift-store]",`🏪 ${s.store_name||"今日店舖"}`);setText("[data-shift-name]",s.shift_name||"今日班別");setText("[data-shift-start-text]",s.start_display||s.start_time||"--:--");setText("[data-shift-end-text]",s.end_display||end||"--:--");applyTheme(s.shift_name)}else{card.dataset.shiftStart="";card.dataset.shiftEnd="";card.dataset.shiftStartDate="";card.dataset.shiftEndDate="";setText("[data-shift-store]","🌈 Rainbow Life");setText("[data-shift-name]","今天沒有排班");setText("[data-shift-start-text]","--:--");setText("[data-shift-end-text]","--:--");applyTheme("")}
     const done=Number(c.work_done||0),total=Number(c.work_total||0),pct=total?Math.round(done/total*100):0;setText("[data-shift-logistics]",logs.length);setText("[data-shift-progress-text]",`${done}/${total}`);const bar=q("[data-shift-progress]");if(bar)bar.style.setProperty("--shift-progress",`${pct}%`);updateCountdown();
    }catch(_){}}
   updateCountdown();setInterval(updateCountdown,1000);setInterval(sync,15000);

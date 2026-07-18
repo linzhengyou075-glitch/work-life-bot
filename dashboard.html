@@ -8,7 +8,9 @@
     <article class="compact-slide shift-card shift-smart {% if shift and '大夜' in shift.shift_name %}is-night{% elif shift and '晚' in shift.shift_name %}is-evening{% elif shift %}is-morning{% else %}is-off{% endif %}"
       data-smart-shift-card
       data-shift-start="{{ shift.start_time if shift else '' }}"
-      data-shift-end="{{ (shift.overtime_end if shift and shift.overtime else shift.end_time) if shift else '' }}">
+      data-shift-end="{{ (shift.overtime_end if shift and shift.overtime else shift.end_time) if shift else '' }}"
+      data-shift-start-date="{{ shift.start_date if shift else '' }}"
+      data-shift-end-date="{{ shift.end_date if shift else '' }}">
       <div class="shift-smart-head">
         <span class="compact-label">今日班別</span>
         <span class="shift-live-dot">即時</span>
@@ -21,8 +23,8 @@
         <span class="compact-art shift-smart-icon" data-shift-icon>{% if shift and '大夜' in shift.shift_name %}🌙{% elif shift and '晚' in shift.shift_name %}🌆{% elif shift %}☀️{% else %}🫧{% endif %}</span>
       </div>
       <div class="shift-time-grid">
-        <div><span>🕘 上班</span><b data-shift-start-text>{{ shift.start_time if shift else '--:--' }}</b></div>
-        <div><span>🕗 下班</span><b data-shift-end-text>{{ (shift.overtime_end if shift and shift.overtime else shift.end_time) if shift else '--:--' }}</b></div>
+        <div><span>🕘 上班</span><b data-shift-start-text>{{ shift.start_display if shift else '--:--' }}</b></div>
+        <div><span>🕗 下班</span><b data-shift-end-text>{{ shift.end_display if shift else '--:--' }}</b></div>
       </div>
       <div class="shift-metrics">
         <span>📦 今日物流 <b data-shift-logistics>{{ daily_logistics|length }}</b> 項</span>
@@ -76,9 +78,9 @@
       <div class="compact-stats"><span data-weather-updated>每 15 分鐘更新</span><a href="{{ weather.source_url }}" target="_blank" rel="noopener">查看官方天氣</a></div>
     </article>
     <article class="compact-slide reminder-card-mini">
-      <span class="compact-label">下一個提醒</span>
-      <div class="compact-content"><div><h2 data-mini-reminder>{% if reminders %}{{ reminders[0].title }}{% else %}目前沒有急迫提醒{% endif %}</h2><p data-mini-reminder-text>{% if reminders %}{{ reminders[0].remind_time }}{% if reminders[0].note %}・{{ reminders[0].note }}{% endif %}{% else %}今天可以照自己的步調慢慢完成。{% endif %}</p></div><span class="compact-art">🔔</span></div>
-      <div class="compact-stats"><span>生活推播</span><a href="/notifications">管理提醒</a></div>
+      <span class="compact-label">下一個工作事項</span>
+      <div class="compact-content"><div><h2 data-mini-reminder>{% if next_work_item %}{{ next_work_item.icon }} {{ next_work_item.title }}{% elif reminders %}{{ reminders[0].title }}{% else %}目前沒有急迫提醒{% endif %}</h2><p data-mini-reminder-text>{% if next_work_item %}{{ next_work_item.datetime_display }}{% elif reminders %}{{ reminders[0].remind_time }}{% if reminders[0].note %}・{{ reminders[0].note }}{% endif %}{% else %}今天可以照自己的步調慢慢完成。{% endif %}</p></div><span class="compact-art">🔔</span></div>
+      <div class="compact-stats"><span>跨日班表同步</span><a href="/work-records">查看工作事項</a></div>
     </article>
   </div>
   <button class="compact-arrow next" type="button" aria-label="下一張">›</button>
@@ -88,7 +90,7 @@
 <section class="compact-summary">
   <div><span>📅 今天日期</span><b>{{ today_label }}</b></div>
   <div><span>🌤 今日天氣</span><b>{{ weather.temperature }}° {{ weather.text }}</b></div>
-  <div><span>🕒 下一個提醒</span><b>{% if reminders %}{{ reminders[0].remind_time }}{% else %}尚無{% endif %}</b></div>
+  <div><span>🕒 下一個事項</span><b>{% if next_work_item %}{{ next_work_item.datetime_display }}{% elif reminders %}{{ reminders[0].remind_time }}{% else %}尚無{% endif %}</b></div>
   <div><span>☑ 今日進度</span><b>{{ counts.work_done }}/{{ counts.work_total }}</b></div>
   <div><span>💰 今日短收</span><b>${{ counts.shortage_total }}</b></div>
 </section>
@@ -97,14 +99,14 @@
 
 <section class="ops-grid">
 <article id="today-weather" class="ops-card weather-card"><div class="ops-title"><span>🌤️</span><b>太平天氣</b></div><div class="weather-main"><strong>{{ weather.icon }} {{ weather.temperature }}°</strong><div><b>{{ weather.text }}</b><span>{{ weather.location }}・體感 {{ weather.apparent }}°</span></div></div><div class="weather-stats"><span>降雨機率 <b>{{ weather.rain }}{% if weather.rain != '--' %}%{% endif %}</b></span><span>風速 <b>{{ weather.wind }}{% if weather.wind != '--' %} km/h{% endif %}</b></span></div>{% if not weather.ok %}<small class="weather-error">天氣服務暫時無回應，稍後會自動重試。</small>{% endif %}<a class="weather-source" href="{{ weather.source_url }}" target="_blank" rel="noopener">資料來源：{{ weather.source or '天氣服務' }} ↗</a></article>
-<article class="ops-card"><div class="ops-title"><span>🕒</span><b>今日班表</b></div>{% if shift %}<div class="shift-focus">{{ shift.icon }} {{ shift.shift_name }}<small>{{ shift.start_time }}－{{ shift.overtime_end if shift.overtime else shift.end_time }}</small></div>{% else %}<div class="empty-focus">尚未排班</div>{% endif %}<a class="store-action" href="/quick-schedule">快速登錄班表</a></article>
+<article class="ops-card"><div class="ops-title"><span>🕒</span><b>今日班表</b></div>{% if shift %}<div class="shift-focus">{{ shift.icon }} {{ shift.shift_name }}<small>{{ shift.range_display }}</small></div>{% else %}<div class="empty-focus">尚未排班</div>{% endif %}<a class="store-action" href="/quick-schedule">快速登錄班表</a></article>
 <article class="ops-card"><div class="ops-title"><span>☑</span><b>工作進度</b></div><div class="metric"><strong>{{ counts.work_done }}</strong><span>/ {{ counts.work_total }} 項</span></div><div class="progress"><i style="--p:{{ ((counts.work_done/counts.work_total*100) if counts.work_total else 0)|round }}%"></i></div><a class="store-action secondary" href="/work-records">開啟工作頁</a></article>
 <article class="ops-card"><div class="ops-title"><span>💰</span><b>今日短收</b></div><div class="metric shortage"><strong>${{ counts.shortage_total }}</strong></div><a class="store-action secondary" href="/work-records">登錄短收</a></article>
 </section>
 
-<section class="message-panels"><article><header>📢 系統訊息</header>{% if reminders %}{% for r in reminders[:4] %}<div class="message-line"><b>{{ r.remind_time }}</b><span>{{ r.title }}{% if r.note %}－{{ r.note }}{% endif %}</span></div>{% endfor %}{% else %}<div class="message-empty">本日沒有系統提醒</div>{% endif %}</article><article><header>📝 今日工作事項</header>{% for item in daily_work[:7] %}<div class="message-line {{ 'done' if item.is_done else '' }}"><b>{{ item.scheduled_time or '--:--' }}</b><span>{{ item.icon }} {{ item.title }}</span></div>{% else %}<div class="message-empty">設定班表後會自動出現</div>{% endfor %}</article></section>
+<section class="message-panels"><article><header>📢 系統訊息</header>{% if reminders %}{% for r in reminders[:4] %}<div class="message-line"><b>{{ r.remind_time }}</b><span>{{ r.title }}{% if r.note %}－{{ r.note }}{% endif %}</span></div>{% endfor %}{% else %}<div class="message-empty">本日沒有系統提醒</div>{% endif %}</article><article><header>📝 今日工作事項</header>{% for item in daily_work[:7] %}<div class="message-line {{ 'done' if item.is_done else '' }}"><b>{{ item.datetime_display }}</b><span>{{ item.icon }} {{ item.title }}</span></div>{% else %}<div class="message-empty">設定班表後會自動出現</div>{% endfor %}</article></section>
 </section>
 
-<aside class="store-side"><section class="side-card logistics-board"><header>物流到店時間</header>{% for item in daily_logistics %}<div class="logistics-time {{ 'done' if item.completed_at else '' }}"><span>{{ item.icon }}</span><b>{{ item.name }}</b><time>{{ item.start_time }}－{{ item.end_time }}</time></div>{% else %}<div class="side-empty">今天沒有套用物流</div>{% endfor %}<a href="/work-records">查看物流進度</a></section><section class="side-card"><header>待辦事項</header>{% for t in tasks %}<div class="side-task">☐ <span>{{ t.title }}</span><small>{{ t.due_date or '' }}</small></div>{% else %}<div class="side-empty">目前沒有待辦</div>{% endfor %}<a href="/tasks">新增待辦</a></section><section class="side-card quick-links"><header>快速功能</header><a href="/notifications">🔔 新增提醒</a><a href="/logistics-settings">🚚 物流設定</a><a href="/profile">⚙ 系統設定</a></section></aside></div>
+<aside class="store-side"><section class="side-card logistics-board"><header>物流到店時間</header>{% for item in daily_logistics %}<div class="logistics-time {{ 'done' if item.completed_at else '' }}"><span>{{ item.icon }}</span><b>{{ item.name }}</b><time>{{ item.display_md }} {{ item.start_time }}－{{ item.end_time }}</time></div>{% else %}<div class="side-empty">今天沒有套用物流</div>{% endfor %}<a href="/work-records">查看物流進度</a></section><section class="side-card"><header>待辦事項</header>{% for t in tasks %}<div class="side-task">☐ <span>{{ t.title }}</span><small>{{ t.due_date or '' }}</small></div>{% else %}<div class="side-empty">目前沒有待辦</div>{% endfor %}<a href="/tasks">新增待辦</a></section><section class="side-card quick-links"><header>快速功能</header><a href="/notifications">🔔 新增提醒</a><a href="/logistics-settings">🚚 物流設定</a><a href="/profile">⚙ 系統設定</a></section></aside></div>
 </main>
 <nav class="mobile-nav"><a class="active" href="/dashboard">⌂<span>首頁</span></a><a href="/quick-schedule">▣<span>班表</span></a><a href="/work-records">✎<span>工作</span></a><a href="/notifications">🔔<span>提醒</span></a><a href="/profile">⚙<span>設定</span></a></nav><script src="/static/app.js"></script></body></html>

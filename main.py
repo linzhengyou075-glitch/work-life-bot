@@ -232,6 +232,87 @@ def get_official_info():
             "url":"https://www.family.com.tw/Marketing/zh/Event"
         }]
 
+
+def _time_minutes(value):
+    try:
+        h,m=str(value or "").split(":")[:2]
+        return int(h)*60+int(m)
+    except Exception:
+        return 0
+
+def _is_overnight_shift(shift):
+    return bool(shift) and _time_minutes(shift.get("end_time")) <= _time_minutes(shift.get("start_time"))
+
+def _shift_end_value(shift):
+    return (shift.get("overtime_end") if shift and shift.get("overtime") else shift.get("end_time")) if shift else ""
+
+def _display_md(value):
+    return value.strftime("%m/%d")
+
+def decorate_shift_dates(work_date, shift):
+    if not shift:
+        return None
+    item=dict(shift)
+    start_day=datetime.strptime(work_date,"%Y-%m-%d").date()
+    end_day=start_day+timedelta(days=1) if _time_minutes(_shift_end_value(item)) <= _time_minutes(item.get("start_time")) else start_day
+    item.update({
+        "work_date":work_date,
+        "start_date":start_day.isoformat(),
+        "end_date":end_day.isoformat(),
+        "start_display":f"{_display_md(start_day)} {item.get('start_time') or '--:--'}",
+        "end_display":f"{_display_md(end_day)} {_shift_end_value(item) or '--:--'}",
+        "range_display":f"{_display_md(start_day)} {item.get('start_time') or '--:--'} ～ {_display_md(end_day)} {_shift_end_value(item) or '--:--'}",
+        "is_overnight":end_day!=start_day,
+    })
+    return item
+
+def decorate_timed_rows(work_date, shift, rows, time_key="scheduled_time"):
+    start_day=datetime.strptime(work_date,"%Y-%m-%d").date()
+    overnight=_is_overnight_shift(shift)
+    start_minutes=_time_minutes(shift.get("start_time")) if shift else 0
+    output=[]
+    for row in rows:
+        item=dict(row)
+        raw=item.get(time_key) or ""
+        item_minutes=_time_minutes(raw)
+        item_day=start_day+timedelta(days=1) if overnight and item_minutes < start_minutes else start_day
+        item["display_date"]=item_day.isoformat()
+        item["display_md"]=_display_md(item_day)
+        item["datetime_display"]=f"{_display_md(item_day)} {raw or '--:--'}"
+        item["sort_datetime"]=f"{item_day.isoformat()} {raw or '23:59'}"
+        output.append(item)
+    return sorted(output,key=lambda x:(x["sort_datetime"],x.get("id",0)))
+
+def resolve_active_work_date(now=None):
+    now=now or datetime.now()
+    today=now.date()
+    previous=today-timedelta(days=1)
+    previous_shift=get_shift(previous.isoformat())
+    if previous_shift and _is_overnight_shift(previous_shift):
+        end_value=_shift_end_value(previous_shift)
+        end_at=datetime.combine(today,datetime.strptime(end_value,"%H:%M").time())
+        if now <= end_at:
+            return previous.isoformat()
+    return today.isoformat()
+
+def dashboard_work_context(now=None):
+    now=now or datetime.now()
+    work_date=resolve_active_work_date(now)
+    raw_shift=get_shift(work_date)
+    shift=decorate_shift_dates(work_date,raw_shift)
+    work=decorate_timed_rows(work_date,raw_shift,list_daily_work(work_date),"scheduled_time")
+    logistics=decorate_timed_rows(work_date,raw_shift,list_daily_logistics(work_date),"start_time")
+    next_item=None
+    for item in work:
+        try:
+            at=datetime.strptime(f"{item['display_date']} {item.get('scheduled_time')}","%Y-%m-%d %H:%M")
+        except Exception:
+            continue
+        if not item.get("is_done") and at>=now:
+            next_item=item
+            break
+    return work_date,shift,work,logistics,next_item
+
 def week_schedule(anchor=None):
     anchor=anchor or date.today()
     start=anchor-timedelta(days=anchor.weekday())
@@ -350,16 +431,19 @@ def logout(request:Request):
 def dashboard(request:Request):
     user,resp=protected(request,"/dashboard")
     if resp:return resp
+    now=datetime.now()
+    work_date,shift,daily_work,daily_logistics,next_work_item=dashboard_work_context(now)
     today=date.today().isoformat()
     return templates.TemplateResponse("dashboard.html",{
-        "request":request,"user":user,"today":today,
-        "shift":get_shift(today),
-        "daily_work":list_daily_work(today),
-        "daily_logistics":list_daily_logistics(today),
-        "attendance":attendance_for(today),
+        "request":request,"user":user,"today":today,"active_work_date":work_date,
+        "shift":shift,
+        "daily_work":daily_work,
+        "daily_logistics":daily_logistics,
+        "next_work_item":next_work_item,
+        "attendance":attendance_for(work_date),
         "tasks":list_tasks(False)[:5],
         "reminders":[x for x in list_reminders(False) if x["remind_date"]==today],
-        "counts":dashboard_counts(today),
+        "counts":dashboard_counts(work_date),
         "weather":get_taiping_weather(),
         "official_info":get_official_info(),
         "week_days":week_schedule(),
@@ -502,11 +586,13 @@ async def excel_upload(request:Request,file:UploadFile=File(...),overwrite:str=F
 def work_page(request:Request,work_date:str|None=None):
     user,resp=protected(request,"/work-records")
     if resp:return resp
-    selected=work_date or date.today().isoformat()
+    selected=work_date or resolve_active_work_date()
+    raw_shift=get_shift(selected)
     return templates.TemplateResponse("work_records.html",{
         "request":request,"user":user,"selected_date":selected,
-        "shift":get_shift(selected),"daily_work":list_daily_work(selected),
-        "daily_logistics":list_daily_logistics(selected),
+        "shift":decorate_shift_dates(selected,raw_shift),
+        "daily_work":decorate_timed_rows(selected,raw_shift,list_daily_work(selected),"scheduled_time"),
+        "daily_logistics":decorate_timed_rows(selected,raw_shift,list_daily_logistics(selected),"start_time"),
         "attendance":attendance_for(selected),"logs":list_work_logs()
     })
 
@@ -674,15 +760,18 @@ def profile_save(request:Request,line_push:str=Form(""),auto_refresh:str=Form("1
 def dashboard_state(request:Request):
     user,resp=protected(request,"/dashboard")
     if resp:return JSONResponse({"ok":False},401)
+    now=datetime.now()
     today=date.today().isoformat()
+    work_date,shift,daily_work,daily_logistics,next_work_item=dashboard_work_context(now)
     reminders=[x for x in list_reminders(False) if x["remind_date"]==today]
     return {
-        "ok":True,
-        "shift":get_shift(today),
-        "daily_work":list_daily_work(today),
-        "daily_logistics":list_daily_logistics(today),
-        "attendance":attendance_for(today),
-        "counts":dashboard_counts(today),
+        "ok":True,"active_work_date":work_date,
+        "shift":shift,
+        "daily_work":daily_work,
+        "daily_logistics":daily_logistics,
+        "next_work_item":next_work_item,
+        "attendance":attendance_for(work_date),
+        "counts":dashboard_counts(work_date),
         "weather":get_taiping_weather(),
         "official_info":get_official_info(),
         "reminder":reminders[0] if reminders else None,
