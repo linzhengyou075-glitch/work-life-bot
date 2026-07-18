@@ -5,24 +5,69 @@ import sqlite3
 
 BASE_DIR = Path(__file__).resolve().parent
 
-def _db_path():
+
+def _is_render() -> bool:
+    return bool(os.getenv("RENDER") or os.getenv("RENDER_SERVICE_ID") or os.getenv("RENDER_EXTERNAL_URL"))
+
+
+def _db_path() -> Path:
+    """回傳唯一資料庫位置。
+
+    Render 上強制使用持久化磁碟 /var/data，避免新版部署時退回專案目錄並建立空資料庫。
+    本機開發才允許使用專案內 data/worklife.db。
+    """
     custom = os.getenv("WORK_LIFE_DB_PATH", "").strip()
     if custom:
         return Path(custom).expanduser().resolve()
-    disk = Path("/var/data")
-    if disk.exists() and os.access(disk, os.W_OK):
-        return disk / "worklife.db"
-    return BASE_DIR / "data" / "worklife.db"
+    if _is_render():
+        return Path("/var/data/worklife.db")
+    return (BASE_DIR / "data" / "worklife.db").resolve()
+
 
 DB_PATH = _db_path()
 
-def connect():
-    """開啟唯一的 Work Life 資料庫連線。
 
-    timeout 與 busy_timeout 可避免 Render 同時讀寫時出現 database is locked；
-    每個寫入函式仍會明確 commit，確保重新整理後立即讀得到。
-    """
+def _prepare_database_path() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    # Render 若沒有掛載永久磁碟，直接停止啟動，不再偷偷改用臨時資料庫。
+    if _is_render() and DB_PATH.parent != Path("/var/data"):
+        raise RuntimeError("Render 必須將 WORK_LIFE_DB_PATH 設為 /var/data/worklife.db")
+    if _is_render() and not os.access(DB_PATH.parent, os.W_OK):
+        raise RuntimeError("/var/data 無法寫入，請確認 Render Persistent Disk 已掛載")
+
+    # 首次切換到永久磁碟時，盡可能搬移舊版資料庫；絕不覆蓋既有永久資料。
+    if not DB_PATH.exists():
+        candidates = [
+            BASE_DIR / "data" / "worklife.db",
+            BASE_DIR / "worklife.db",
+            Path("/opt/render/project/src/data/worklife.db"),
+            Path("/opt/render/project/src/worklife.db"),
+        ]
+        for legacy in candidates:
+            try:
+                legacy = legacy.resolve()
+                if legacy != DB_PATH and legacy.is_file() and legacy.stat().st_size > 0:
+                    import shutil
+                    shutil.copy2(legacy, DB_PATH)
+                    break
+            except OSError:
+                continue
+
+
+def database_status() -> dict:
+    _prepare_database_path()
+    return {
+        "path": str(DB_PATH),
+        "exists": DB_PATH.exists(),
+        "size": DB_PATH.stat().st_size if DB_PATH.exists() else 0,
+        "persistent": (not _is_render()) or str(DB_PATH).startswith("/var/data/"),
+    }
+
+
+def connect():
+    """開啟唯一的 Work Life 永久資料庫連線。"""
+    _prepare_database_path()
     db = sqlite3.connect(str(DB_PATH), timeout=30)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys=ON")

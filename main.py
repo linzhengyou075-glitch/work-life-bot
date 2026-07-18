@@ -24,7 +24,8 @@ from database import (
     attendance_for,check_in,check_out,add_reminder,list_reminders,due_reminders,
     mark_reminder_sent,complete_reminder,delete_reminder,add_notification_log,
     list_notification_logs,add_task,list_tasks,toggle_task,delete_task,
-    add_work_log,list_work_logs,delete_work_log,dashboard_counts,set_setting,get_setting
+    add_work_log,list_work_logs,delete_work_log,dashboard_counts,set_setting,get_setting,
+    database_status
 )
 from line_api import verify_signature,reply_message,work_entry_flex,push_message,reminder_flex
 
@@ -299,7 +300,7 @@ def protected(request,path):
 
 @app.get("/healthz")
 def healthz():
-    return {"status":"ok","version":"4.1.0","line_login_ready":settings.line_login_ready}
+    return {"status":"ok","version":"4.2.0-persistent-db","line_login_ready":settings.line_login_ready,"database":database_status()}
 
 @app.get("/")
 def root(request:Request):

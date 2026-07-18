@@ -1,0 +1,15 @@
+Work Life v1.0.1 覆蓋修正版
+
+部署環境需保留以下設定：
+BASE_URL=https://你的網站網址
+SESSION_SECRET=自訂長字串
+LINE_LOGIN_CHANNEL_ID=LINE Login Channel ID
+LINE_LOGIN_CHANNEL_SECRET=LINE Login Channel Secret
+OWNER_LINE_USER_ID=你的 LINE User ID（若留空則不限制帳號）
+LINE_CHANNEL_SECRET=Messaging API Channel Secret
+LINE_CHANNEL_ACCESS_TOKEN=Messaging API Channel Access Token
+
+LINE Developers 的 Callback URL 必須設定為：
+https://你的網站網址/auth/line/callback
+
+本版本會自動升級舊資料庫欄位，不需刪除原本資料庫。
