@@ -325,7 +325,7 @@ def week_schedule(anchor=None):
     return output
 
 
-app=FastAPI(title="Work Life",version="4.1.0")
+app=FastAPI(title="Work Life",version="4.2.1")
 app.add_middleware(
     SessionMiddleware,
     secret_key=settings.session_secret,
@@ -381,7 +381,7 @@ def protected(request,path):
 
 @app.get("/healthz")
 def healthz():
-    return {"status":"ok","version":"4.2.0-persistent-db","line_login_ready":settings.line_login_ready,"database":database_status()}
+    return {"status":"ok","version":"4.2.1-render-connect-fix","line_login_ready":settings.line_login_ready,"database":database_status()}
 
 @app.get("/")
 def root(request:Request):

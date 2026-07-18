@@ -7,8 +7,6 @@ services:
     healthCheckPath: /healthz
     envVars:
       - key: WORK_LIFE_DB_PATH
-        value: /var/data/worklife.db
-    disk:
-      name: work-life-data
-      mountPath: /var/data
-      sizeGB: 1
+        value: /tmp/worklife.db
+      - key: SESSION_SECRET
+        generateValue: true

@@ -11,16 +11,16 @@ def _is_render() -> bool:
 
 
 def _db_path() -> Path:
-    """回傳唯一資料庫位置。
+    """回傳資料庫位置。
 
-    Render 上強制使用持久化磁碟 /var/data，避免新版部署時退回專案目錄並建立空資料庫。
-    本機開發才允許使用專案內 data/worklife.db。
+    有設定 WORK_LIFE_DB_PATH 時優先使用；Render 免費方案沒有永久磁碟時，
+    改用 /tmp/worklife.db，確保網站仍可啟動，不會因 /var/data 不存在而無法連線。
     """
     custom = os.getenv("WORK_LIFE_DB_PATH", "").strip()
     if custom:
         return Path(custom).expanduser().resolve()
     if _is_render():
-        return Path("/var/data/worklife.db")
+        return Path("/tmp/worklife.db")
     return (BASE_DIR / "data" / "worklife.db").resolve()
 
 
@@ -29,14 +29,10 @@ DB_PATH = _db_path()
 
 def _prepare_database_path() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if not os.access(DB_PATH.parent, os.W_OK):
+        raise RuntimeError(f"資料庫目錄無法寫入：{DB_PATH.parent}")
 
-    # Render 若沒有掛載永久磁碟，直接停止啟動，不再偷偷改用臨時資料庫。
-    if _is_render() and DB_PATH.parent != Path("/var/data"):
-        raise RuntimeError("Render 必須將 WORK_LIFE_DB_PATH 設為 /var/data/worklife.db")
-    if _is_render() and not os.access(DB_PATH.parent, os.W_OK):
-        raise RuntimeError("/var/data 無法寫入，請確認 Render Persistent Disk 已掛載")
-
-    # 首次切換到永久磁碟時，盡可能搬移舊版資料庫；絕不覆蓋既有永久資料。
+    # 首次建立資料庫時，盡可能搬移舊版資料；絕不覆蓋既有資料。
     if not DB_PATH.exists():
         candidates = [
             BASE_DIR / "data" / "worklife.db",
