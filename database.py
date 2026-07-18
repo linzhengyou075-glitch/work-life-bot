@@ -1,9 +1,14 @@
 from pathlib import Path
 from datetime import datetime
 import os
+import re
 import sqlite3
 
 BASE_DIR = Path(__file__).resolve().parent
+DATABASE_URL = (os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or "").strip()
+DB_SCHEMA = (os.getenv("WORK_LIFE_DB_SCHEMA") or "worklife").strip()
+if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", DB_SCHEMA):
+    raise RuntimeError("WORK_LIFE_DB_SCHEMA 只能使用英文字母、數字與底線")
 
 
 def _is_render() -> bool:
@@ -11,11 +16,6 @@ def _is_render() -> bool:
 
 
 def _db_path() -> Path:
-    """回傳資料庫位置。
-
-    有設定 WORK_LIFE_DB_PATH 時優先使用；Render 免費方案沒有永久磁碟時，
-    改用 /tmp/worklife.db，確保網站仍可啟動，不會因 /var/data 不存在而無法連線。
-    """
     custom = os.getenv("WORK_LIFE_DB_PATH", "").strip()
     if custom:
         return Path(custom).expanduser().resolve()
@@ -32,37 +32,117 @@ def _prepare_database_path() -> None:
     if not os.access(DB_PATH.parent, os.W_OK):
         raise RuntimeError(f"資料庫目錄無法寫入：{DB_PATH.parent}")
 
-    # 首次建立資料庫時，盡可能搬移舊版資料；絕不覆蓋既有資料。
-    if not DB_PATH.exists():
-        candidates = [
-            BASE_DIR / "data" / "worklife.db",
-            BASE_DIR / "worklife.db",
-            Path("/opt/render/project/src/data/worklife.db"),
-            Path("/opt/render/project/src/worklife.db"),
-        ]
-        for legacy in candidates:
-            try:
-                legacy = legacy.resolve()
-                if legacy != DB_PATH and legacy.is_file() and legacy.stat().st_size > 0:
-                    import shutil
-                    shutil.copy2(legacy, DB_PATH)
-                    break
-            except OSError:
-                continue
+
+class _PgCursor:
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    @property
+    def rowcount(self):
+        return self._cursor.rowcount
+
+    @property
+    def lastrowid(self):
+        row = self._cursor.fetchone()
+        return row["id"] if row else None
+
+    def fetchone(self):
+        return self._cursor.fetchone()
+
+    def fetchall(self):
+        return self._cursor.fetchall()
+
+    def __iter__(self):
+        return iter(self._cursor)
+
+
+class _PgConnection:
+    def __init__(self, connection):
+        self._connection = connection
+
+    @staticmethod
+    def _sql(sql: str) -> str:
+        statement = sql.strip()
+        statement = statement.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "BIGSERIAL PRIMARY KEY")
+        statement = statement.replace("?", "%s")
+        if re.match(r"(?is)^INSERT\s+OR\s+IGNORE\s+INTO\s+", statement):
+            statement = re.sub(r"(?is)^INSERT\s+OR\s+IGNORE\s+INTO\s+", "INSERT INTO ", statement)
+            statement = statement.rstrip().rstrip(";") + " ON CONFLICT DO NOTHING"
+        return statement
+
+    def execute(self, sql, params=()):
+        from psycopg2.extras import RealDictCursor
+        cur = self._connection.cursor(cursor_factory=RealDictCursor)
+        cur.execute(self._sql(sql), params or ())
+        return _PgCursor(cur)
+
+    def executemany(self, sql, seq):
+        from psycopg2.extras import RealDictCursor
+        cur = self._connection.cursor(cursor_factory=RealDictCursor)
+        cur.executemany(self._sql(sql), seq)
+        return _PgCursor(cur)
+
+    def executescript(self, script):
+        for statement in script.split(";"):
+            if statement.strip():
+                self.execute(statement)
+
+    def commit(self):
+        self._connection.commit()
+
+    def rollback(self):
+        self._connection.rollback()
+
+    def close(self):
+        self._connection.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if exc_type is None:
+            self._connection.commit()
+        else:
+            self._connection.rollback()
+        self._connection.close()
+        return False
 
 
 def database_status() -> dict:
+    if DATABASE_URL:
+        return {
+            "path": f"PostgreSQL / schema={DB_SCHEMA}",
+            "exists": True,
+            "size": 0,
+            "persistent": True,
+            "backend": "postgresql",
+            "schema": DB_SCHEMA,
+        }
     _prepare_database_path()
     return {
         "path": str(DB_PATH),
         "exists": DB_PATH.exists(),
         "size": DB_PATH.stat().st_size if DB_PATH.exists() else 0,
         "persistent": (not _is_render()) or str(DB_PATH).startswith("/var/data/"),
+        "backend": "sqlite",
     }
 
 
 def connect():
-    """開啟唯一的 Work Life 永久資料庫連線。"""
+    """有 DATABASE_URL 時使用共用 PostgreSQL 的 worklife schema；否則保留 SQLite 備援。"""
+    if DATABASE_URL:
+        try:
+            import psycopg2
+        except ImportError as exc:
+            raise RuntimeError("缺少 psycopg2-binary，請更新 requirements.txt 後重新部署") from exc
+        conn = psycopg2.connect(DATABASE_URL, connect_timeout=15, sslmode=os.getenv("PGSSLMODE", "prefer"))
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute(f'CREATE SCHEMA IF NOT EXISTS "{DB_SCHEMA}"')
+            cur.execute(f'SET search_path TO "{DB_SCHEMA}", public')
+        conn.autocommit = False
+        return _PgConnection(conn)
+
     _prepare_database_path()
     db = sqlite3.connect(str(DB_PATH), timeout=30)
     db.row_factory = sqlite3.Row
@@ -73,6 +153,11 @@ def connect():
     return db
 
 def _columns(db, table):
+    if DATABASE_URL:
+        return {r["column_name"] for r in db.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema=? AND table_name=?",
+            (DB_SCHEMA, table),
+        )}
     return {r["name"] for r in db.execute(f"PRAGMA table_info({table})")}
 
 def _add_column(db, table, definition):
@@ -239,7 +324,7 @@ def init_db():
             "shifts": ["overtime INTEGER DEFAULT 0", "overtime_end TEXT", "manager_tasks INTEGER DEFAULT 0", "note TEXT DEFAULT ''", "created_at TEXT", "updated_at TEXT"],
             "daily_work_items": ["shift_id INTEGER", "template_item_id INTEGER", "scheduled_time TEXT", "icon TEXT DEFAULT '✅'", "category TEXT DEFAULT '工作'", "is_done INTEGER DEFAULT 0", "completed_at TEXT", "created_at TEXT"],
             "logistics_settings": ["icon TEXT DEFAULT '🚚'", "start_time TEXT DEFAULT '00:00'", "end_time TEXT DEFAULT '00:00'", "content TEXT DEFAULT ''", "applies_b INTEGER DEFAULT 1", "applies_c INTEGER DEFAULT 1", "applies_late INTEGER DEFAULT 0", "applies_night INTEGER DEFAULT 0", "remind_minutes INTEGER DEFAULT 10", "line_push INTEGER DEFAULT 1", "show_carousel INTEGER DEFAULT 1", "is_active INTEGER DEFAULT 1", "updated_at TEXT"],
-            "daily_logistics": ["shift_id INTEGER", "logistics_id INTEGER", "arrived_at TEXT", "completed_at TEXT", "created_at TEXT"],
+            "daily_logistics": ["shift_id INTEGER", "logistics_id INTEGER", "arrived_at TEXT", "completed_at TEXT", "reminded_at TEXT", "created_at TEXT"],
             "reminders": ["reminder_type TEXT DEFAULT '自訂'", "note TEXT DEFAULT ''", "related_url TEXT DEFAULT '/dashboard'", "line_push INTEGER DEFAULT 1", "show_carousel INTEGER DEFAULT 1", "sent_at TEXT", "is_done INTEGER DEFAULT 0", "created_at TEXT"],
             "notification_logs": ["content TEXT DEFAULT ''", "notification_type TEXT DEFAULT '系統'", "status TEXT DEFAULT '已推播'", "sent_at TEXT"],
             "attendance": ["shift_id INTEGER", "check_in_at TEXT", "check_out_at TEXT", "updated_at TEXT"],
@@ -251,6 +336,7 @@ def init_db():
             for definition in definitions:
                 _add_column(db, table, definition)
         _apply_default_migration(db)
+        _apply_phase2_migration(db)
 
 def _template_id(db, name, description):
     db.execute("INSERT OR IGNORE INTO work_templates(name,description) VALUES (?,?)", (name,description))
@@ -375,6 +461,92 @@ def _apply_default_migration(db):
         )
 
     db.execute("INSERT INTO schema_migrations(migration_key) VALUES (?)",(migration,))
+
+
+def _apply_phase2_migration(db):
+    """Phase 2：套用店舖工作流程與物流提醒，不刪除已完成紀錄。"""
+    migration = "Phase2_工作流程物流提醒_20260718"
+    if db.execute("SELECT 1 FROM schema_migrations WHERE migration_key=?", (migration,)).fetchone():
+        return
+
+    # 溪洲大夜依照目前實際作業時間重新整理。
+    xizhou_night = [
+        ("接班", "23:00", "🤝", "交班", 10, "always"),
+        ("清潔", "00:00", "🧼", "清潔", 20, "always"),
+        ("關東煮整理", "01:00", "🍢", "熟食", 30, "always"),
+        ("店內外掃拖", "01:30", "🧹", "清潔", 40, "always"),
+        ("蒸箱加水", "03:00", "🌽", "熟食", 50, "always"),
+        ("日翊進貨：包裹", "03:40", "📦", "物流", 60, "always"),
+        ("低溫一配進貨：便當、微波食品、沙拉", "03:50", "🥶", "物流", 70, "always"),
+        ("放玉米下去蒸", "04:00", "🌽", "熟食", 80, "always"),
+        ("鮮一進貨：麵包、飯糰", "05:20", "🍞", "物流", 90, "always"),
+        ("常溫物流：常溫商品、飲料、泡麵、餅乾", "06:20", "🚚", "物流", 100, "always"),
+        ("交班", "07:00", "🤝", "交班", 110, "always"),
+    ]
+    xn_id = _template_id(db, "溪洲大夜班工作範本", "溪洲大夜班工作流程")
+    _replace_items(db, xn_id, xizhou_night)
+    db.execute("UPDATE shift_types SET template_id=? WHERE name='溪洲大夜'", (xn_id,))
+
+    # 物流時間與內容。既有同名資料直接更新，避免建立重複項目。
+    logistics = [
+        ("日翊", "📦", "03:40", "04:10", "包裹", 1, 1, 0, 1, 10),
+        ("低溫一配", "🥶", "03:50", "04:30", "便當、微波食品、沙拉", 1, 1, 0, 1, 10),
+        ("鮮一", "🍞", "05:20", "06:00", "麵包、飯糰", 1, 1, 0, 1, 10),
+        ("常溫物流", "🚚", "06:20", "07:30", "常溫商品、飲料、泡麵、餅乾", 1, 1, 0, 1, 10),
+    ]
+    # 舊名稱「常溫」轉成「常溫物流」，若新名稱已存在則停用舊項目。
+    old = db.execute("SELECT id FROM logistics_settings WHERE name='常溫'").fetchone()
+    new = db.execute("SELECT id FROM logistics_settings WHERE name='常溫物流'").fetchone()
+    if old and not new:
+        db.execute("UPDATE logistics_settings SET name='常溫物流' WHERE id=?", (old["id"],))
+    elif old and new:
+        db.execute("UPDATE logistics_settings SET is_active=0 WHERE id=?", (old["id"],))
+
+    active_names=[]
+    for row in logistics:
+        name, icon, start, end, content, applies_b, applies_c, applies_late, applies_night, remind_minutes = row
+        active_names.append(name)
+        db.execute(
+            """INSERT INTO logistics_settings
+            (name,icon,start_time,end_time,content,applies_b,applies_c,applies_late,applies_night,remind_minutes,line_push,show_carousel,is_active,updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,1,1,1,CURRENT_TIMESTAMP)
+            ON CONFLICT(name) DO UPDATE SET icon=excluded.icon,start_time=excluded.start_time,
+            end_time=excluded.end_time,content=excluded.content,applies_b=excluded.applies_b,
+            applies_c=excluded.applies_c,applies_late=excluded.applies_late,
+            applies_night=excluded.applies_night,remind_minutes=excluded.remind_minutes,
+            line_push=1,show_carousel=1,is_active=1,updated_at=CURRENT_TIMESTAMP""",
+            (name,icon,start,end,content,applies_b,applies_c,applies_late,applies_night,remind_minutes)
+        )
+    db.execute("UPDATE logistics_settings SET is_active=0 WHERE name IN ('巧克力')")
+
+    # 重新同步今天以後的班表；已完成的工作與物流進度保留。
+    today = datetime.now().date().isoformat()
+    shifts = db.execute(
+        """SELECT s.*,st.store_code,st.start_time,st.template_id FROM shifts s
+        JOIN shift_types st ON st.id=s.shift_type_id WHERE s.work_date>=?""", (today,)
+    ).fetchall()
+    for shift in shifts:
+        if shift["template_id"]:
+            desired=[]
+            for item in db.execute("SELECT * FROM work_template_items WHERE template_id=? ORDER BY sort_order,id", (shift["template_id"],)):
+                if not _condition_ok(item["condition_type"], shift["work_date"], bool(shift["manager_tasks"])):
+                    continue
+                desired.append(item["id"])
+                existing=db.execute("SELECT id FROM daily_work_items WHERE work_date=? AND template_item_id=?", (shift["work_date"],item["id"])).fetchone()
+                if existing:
+                    db.execute("""UPDATE daily_work_items SET shift_id=?,title=?,scheduled_time=?,icon=?,category=? WHERE id=?""",
+                               (shift["id"],item["title"],item["scheduled_time"],item["icon"],item["category"],existing["id"]))
+                else:
+                    db.execute("""INSERT INTO daily_work_items(work_date,shift_id,template_item_id,title,scheduled_time,icon,category)
+                               VALUES (?,?,?,?,?,?,?)""",
+                               (shift["work_date"],shift["id"],item["id"],item["title"],item["scheduled_time"],item["icon"],item["category"]))
+            if desired:
+                marks=",".join("?" for _ in desired)
+                db.execute(f"""DELETE FROM daily_work_items WHERE work_date=? AND template_item_id IS NOT NULL
+                           AND template_item_id NOT IN ({marks}) AND is_done=0""", (shift["work_date"],*desired))
+        _sync_logistics(db, shift["work_date"], shift)
+
+    db.execute("INSERT INTO schema_migrations(migration_key) VALUES (?)", (migration,))
 
 def upsert_user(uid,name,pic):
     with connect() as db:
@@ -542,6 +714,10 @@ def logistics_complete(item_id):
     with connect() as db:
         db.execute("UPDATE daily_logistics SET completed_at=CURRENT_TIMESTAMP WHERE id=?",(item_id,))
 
+def mark_logistics_reminded(item_id):
+    with connect() as db:
+        db.execute("UPDATE daily_logistics SET reminded_at=CURRENT_TIMESTAMP WHERE id=?", (item_id,))
+
 def attendance_for(work_date):
     with connect() as db:
         r=db.execute("SELECT * FROM attendance WHERE work_date=?",(work_date,)).fetchone()
@@ -599,8 +775,8 @@ def add_task(title,due_date="",note=""):
     if not title:
         raise ValueError("請輸入待辦事項")
     with connect() as db:
-        cur=db.execute("INSERT INTO tasks(title,due_date,note) VALUES (?,?,?)",(title,due_date or None,(note or "").strip()))
-        item_id=cur.lastrowid
+        cur=db.execute("INSERT INTO tasks(title,due_date,note) VALUES (?,?,?) RETURNING id",(title,due_date or None,(note or "").strip()))
+        item_id=cur.fetchone()["id"]
         db.commit()
     with connect() as db:
         saved=db.execute("SELECT * FROM tasks WHERE id=?",(item_id,)).fetchone()

@@ -20,7 +20,7 @@ from config import settings
 from database import (
     init_db,upsert_user,list_shift_types,list_shifts,get_shift,save_shift,delete_shift,
     list_daily_work,toggle_daily_work,list_logistics_settings,save_logistics_setting,
-    delete_logistics_setting,list_daily_logistics,logistics_arrive,logistics_complete,
+    delete_logistics_setting,list_daily_logistics,logistics_arrive,logistics_complete,mark_logistics_reminded,
     attendance_for,check_in,check_out,add_reminder,list_reminders,due_reminders,
     mark_reminder_sent,complete_reminder,delete_reminder,add_notification_log,
     list_notification_logs,add_task,list_tasks,toggle_task,delete_task,
@@ -313,6 +313,17 @@ def dashboard_work_context(now=None):
             break
     return work_date,shift,work,logistics,next_item
 
+def get_next_shift(after_date=None):
+    after_date=after_date or date.today().isoformat()
+    for item in list_shifts():
+        if item.get("work_date", "") < after_date:
+            continue
+        if item.get("store_code") == "X":
+            continue
+        return decorate_shift_dates(item["work_date"], item)
+    return None
+
+
 def week_schedule(anchor=None):
     anchor=anchor or date.today()
     start=anchor-timedelta(days=anchor.weekday())
@@ -363,6 +374,30 @@ async def reminder_worker():
                         add_notification_log(item["title"],content,"已推播")
                 except Exception as exc:
                     add_notification_log(item["title"],str(exc),"失敗")
+
+            # Phase 2：依班表自動推播物流提醒。大夜班凌晨時段會套用前一天班表。
+            for work_date in ((now.date()-timedelta(days=1)).isoformat(), now.date().isoformat()):
+                raw_shift=get_shift(work_date)
+                if not raw_shift or raw_shift.get("store_code")=="X":
+                    continue
+                for item in decorate_timed_rows(work_date,raw_shift,list_daily_logistics(work_date),"start_time"):
+                    if item.get("reminded_at") or item.get("completed_at") or not item.get("line_push"):
+                        continue
+                    try:
+                        event_at=datetime.strptime(f"{item['display_date']} {item['start_time']}","%Y-%m-%d %H:%M")
+                        remind_at=event_at-timedelta(minutes=int(item.get("remind_minutes") or 10))
+                    except Exception:
+                        continue
+                    if remind_at <= now < event_at+timedelta(minutes=5):
+                        title=f"{item.get('icon') or '🚚'} {item.get('name')}即將到店"
+                        content=f"預計 {item['datetime_display']} 到店"
+                        if item.get("content"):
+                            content += f"｜{item['content']}"
+                        url=f"{settings.base_url}/work-records?work_date={work_date}"
+                        sent=push_message(settings.owner_line_user_id,[reminder_flex(title,content,url)])
+                        if sent:
+                            mark_logistics_reminded(item["id"])
+                            add_notification_log(title,content,"已推播")
         except Exception:
             pass
         await asyncio.sleep(60)
@@ -447,6 +482,7 @@ def dashboard(request:Request):
         "weather":get_taiping_weather(),
         "official_info":get_official_info(),
         "week_days":week_schedule(),
+        "next_shift":get_next_shift(today),
         "now_text":datetime.now().strftime("%Y/%m/%d %H:%M"),
         "today_label":datetime.now().strftime("%m月%d日"),
         "life_links":[
@@ -494,8 +530,98 @@ def schedule_delete(request:Request,work_date:str=Form(...)):
     delete_shift(work_date)
     return RedirectResponse("/quick-schedule?deleted=1",303)
 
+def _excel_text(value):
+    if value is None:
+        return ""
+    if hasattr(value, "strftime") and not isinstance(value, str):
+        try:
+            return value.strftime("%H:%M")
+        except Exception:
+            pass
+    return str(value).strip()
+
+
+def _normalise_header(value):
+    return re.sub(r"[\s_／/()（）]+", "", _excel_text(value)).lower()
+
+
+def _normalise_store(value):
+    text=_excel_text(value).replace(" ", "")
+    if "溪洲" in text or text.upper()=="C":
+        return "溪洲"
+    if "建昌" in text or text.upper()=="B":
+        return "建昌"
+    return ""
+
+
+def _normalise_shift_name(store_value, shift_value):
+    shift=_excel_text(shift_value).replace(" ", "")
+    if not shift:
+        return ""
+    if "休" in shift:
+        return "休假"
+    store=_normalise_store(store_value)
+    if "大夜" in shift or shift in {"夜班", "night"}:
+        return f"{store}大夜" if store else ""
+    if "晚班" in shift or shift in {"晚", "late"}:
+        return f"{store}晚班" if store else ""
+    # 兼容舊範本直接填入完整班別名稱。
+    return shift
+
+
+def _parse_work_date(raw_date):
+    if raw_date is None or raw_date == "":
+        return None
+    if hasattr(raw_date, "strftime"):
+        return raw_date.strftime("%Y-%m-%d")
+    text=_excel_text(raw_date).replace(".", "-").replace("/", "-")
+    for fmt in ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%Y%m%d"):
+        try:
+            return datetime.strptime(text[:19], fmt).date().isoformat()
+        except Exception:
+            pass
+    try:
+        return date.fromisoformat(text[:10]).isoformat()
+    except Exception:
+        return None
+
+
+def _parse_overtime(value):
+    text=_excel_text(value)
+    compact=text.replace(" ", "").replace("：", ":")
+    if not compact or compact.lower() in {"否", "no", "n", "false", "0", "-", "無"}:
+        return False, ""
+    match=re.search(r"([01]?\d|2[0-3]):([0-5]\d)", compact)
+    if match:
+        return True, f"{int(match.group(1)):02d}:{match.group(2)}"
+    return compact.lower() in {"是", "yes", "y", "true", "1", "加班"}, ""
+
+
+def _header_map(ws):
+    aliases={
+        "date":{"日期", "工作日期", "上班日期"},
+        "store":{"店名", "店舖", "店鋪", "門市", "工作店舖"},
+        "shift":{"班別", "班次", "班別名稱"},
+        "start":{"上班時間", "開始時間", "上班"},
+        "end":{"下班時間", "結束時間", "下班"},
+        "overtime":{"加班", "加班時間", "加班至"},
+        "note":{"備註", "說明"},
+    }
+    normalised={key:{_normalise_header(v) for v in values} for key,values in aliases.items()}
+    for row_no in range(1, min(ws.max_row or 1, 12)+1):
+        mapping={}
+        for col_no in range(1, (ws.max_column or 1)+1):
+            header=_normalise_header(ws.cell(row_no,col_no).value)
+            for key,values in normalised.items():
+                if header in values:
+                    mapping[key]=col_no
+        if "date" in mapping and "shift" in mapping:
+            return row_no,mapping
+    return None,{}
+
+
 def parse_excel(content:bytes, filename:str=""):
-    """讀取 Work Life 班表，支援 .xlsx 與含巨集的 .xlsm。"""
+    """讀取 Work Life 班表，支援新版直式表格與舊版月班表範本。"""
     try:
         wb=load_workbook(
             BytesIO(content),
@@ -507,40 +633,72 @@ def parse_excel(content:bytes, filename:str=""):
 
     types={str(x["name"]).strip():x for x in list_shift_types()}
     rows=[];errors=[];matched_sheets=0
+    seen_dates=set()
     for ws in wb.worksheets:
+        header_row,columns=_header_map(ws)
+        if header_row:
+            matched_sheets+=1
+            for row_no in range(header_row+1,(ws.max_row or header_row)+1):
+                raw_date=ws.cell(row_no,columns["date"]).value
+                raw_shift=ws.cell(row_no,columns["shift"]).value
+                raw_store=ws.cell(row_no,columns.get("store",0)).value if columns.get("store") else ""
+                if not raw_date and not raw_shift:
+                    continue
+                work_date=_parse_work_date(raw_date)
+                if not work_date:
+                    errors.append(f"{ws.title} 第{row_no}列日期無法讀取")
+                    continue
+                shift_name=_normalise_shift_name(raw_store,raw_shift)
+                if not shift_name:
+                    errors.append(f"{ws.title} 第{row_no}列缺少店名或班別")
+                    continue
+                if shift_name not in types:
+                    errors.append(f"{ws.title} 第{row_no}列班別不存在：{shift_name}")
+                    continue
+                overtime,overtime_end=_parse_overtime(ws.cell(row_no,columns.get("overtime",0)).value if columns.get("overtime") else "")
+                note=_excel_text(ws.cell(row_no,columns.get("note",0)).value) if columns.get("note") else ""
+                if work_date in seen_dates:
+                    errors.append(f"{ws.title} 第{row_no}列日期重複：{work_date}")
+                    continue
+                rows.append({
+                    "work_date":work_date,
+                    "shift_type_id":types[shift_name]["id"],
+                    "overtime":overtime,
+                    "overtime_end":overtime_end or ("08:00" if overtime else ""),
+                    "note":note
+                })
+                seen_dates.add(work_date)
+            continue
+
+        # 舊版 Work Life 月班表：A 日期、C 班別、D 是否加班、E 加班時間、F 備註。
         if "月班表" not in ws.title:
             continue
         matched_sheets+=1
         for row_no in range(5,(ws.max_row or 4)+1):
-            raw_date=ws.cell(row_no,1).value
-            shift_name=str(ws.cell(row_no,3).value or "").strip()
-            if not raw_date or not shift_name:
+            work_date=_parse_work_date(ws.cell(row_no,1).value)
+            shift_name=_excel_text(ws.cell(row_no,3).value)
+            if not work_date or not shift_name:
                 continue
-            if hasattr(raw_date,"strftime"):
-                work_date=raw_date.strftime("%Y-%m-%d")
-            else:
-                raw_text=str(raw_date).strip().replace("/","-")
-                try:
-                    work_date=date.fromisoformat(raw_text[:10]).isoformat()
-                except Exception:
-                    errors.append(f"{ws.title} 第{row_no}列日期無法讀取")
-                    continue
             if shift_name not in types:
                 errors.append(f"{ws.title} 第{row_no}列班別不存在：{shift_name}")
                 continue
-            overtime_text=str(ws.cell(row_no,4).value or "否").strip().lower()
-            overtime=overtime_text in {"是","yes","y","true","1"}
-            overtime_end=str(ws.cell(row_no,5).value or "").strip()
-            note=str(ws.cell(row_no,6).value or "").strip()
+            overtime_text=_excel_text(ws.cell(row_no,4).value)
+            overtime,overtime_from_text=_parse_overtime(overtime_text)
+            overtime_end=_excel_text(ws.cell(row_no,5).value) or overtime_from_text
+            note=_excel_text(ws.cell(row_no,6).value)
+            if work_date in seen_dates:
+                errors.append(f"{ws.title} 第{row_no}列日期重複：{work_date}")
+                continue
             rows.append({
                 "work_date":work_date,
                 "shift_type_id":types[shift_name]["id"],
                 "overtime":overtime,
-                "overtime_end":overtime_end,
+                "overtime_end":overtime_end or ("08:00" if overtime else ""),
                 "note":note
             })
+            seen_dates.add(work_date)
     if matched_sheets==0:
-        raise ValueError("找不到『月班表』工作表，請使用 Work Life 班表範本。")
+        raise ValueError("找不到班表欄位。請確認第一列包含：日期、店名、班別、上班時間、下班時間、加班。")
     return rows,errors
 
 @app.post("/quick-schedule/upload",response_class=HTMLResponse)
@@ -774,6 +932,7 @@ def dashboard_state(request:Request):
         "counts":dashboard_counts(work_date),
         "weather":get_taiping_weather(),
         "official_info":get_official_info(),
+        "next_shift":get_next_shift(today),
         "reminder":reminders[0] if reminders else None,
         "updated_at":datetime.now().strftime("%H:%M:%S")
     }

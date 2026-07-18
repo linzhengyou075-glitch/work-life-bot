@@ -90,7 +90,7 @@
 <section class="compact-summary">
   <div><span>📅 今天日期</span><b>{{ today_label }}</b></div>
   <div><span>🌤 今日天氣</span><b>{{ weather.temperature }}° {{ weather.text }}</b></div>
-  <div><span>🕒 下一個事項</span><b>{% if next_work_item %}{{ next_work_item.datetime_display }}{% elif reminders %}{{ reminders[0].remind_time }}{% else %}尚無{% endif %}</b></div>
+  <div><span>🗓 下一次上班</span><b>{% if next_shift %}{{ next_shift.work_date[5:] }} {{ next_shift.shift_name }} {{ next_shift.start_time }}{% else %}尚無排班{% endif %}</b></div>
   <div><span>☑ 今日進度</span><b>{{ counts.work_done }}/{{ counts.work_total }}</b></div>
   <div><span>💰 今日短收</span><b>${{ counts.shortage_total }}</b></div>
 </section>
