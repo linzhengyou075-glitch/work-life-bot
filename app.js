@@ -191,3 +191,75 @@ document.addEventListener("DOMContentLoaded",()=>{
   }catch(_){set("[data-family-updated]","連線不穩，保留上次活動")}};
  sync();setInterval(sync,30*60*1000);
 });
+
+
+// 全站統一訊息彈跳視窗
+(function(){
+  function ensurePopup(){
+    let root=document.querySelector('[data-global-popup]');
+    if(root) return root;
+    root=document.createElement('div');
+    root.className='global-popup';
+    root.setAttribute('data-global-popup','');
+    root.hidden=true;
+    root.innerHTML=`<div class="global-popup-backdrop" data-popup-close></div><section class="global-popup-box" role="dialog" aria-modal="true" aria-live="assertive"><div class="global-popup-icon" data-popup-icon>✓</div><h2 data-popup-title>系統訊息</h2><p data-popup-message></p><div class="global-popup-actions"><button type="button" class="wl-btn full" data-popup-ok>確定</button><button type="button" class="wl-btn danger full" data-popup-cancel hidden>取消</button></div></section>`;
+    document.body.appendChild(root);
+    root.querySelectorAll('[data-popup-close],[data-popup-ok]').forEach(el=>el.addEventListener('click',()=>{root.hidden=true;document.body.classList.remove('popup-open')}));
+    return root;
+  }
+  window.showWorkLifePopup=function(message,type='success',title=''){
+    const root=ensurePopup();
+    const icon=root.querySelector('[data-popup-icon]');
+    const titleEl=root.querySelector('[data-popup-title]');
+    const msg=root.querySelector('[data-popup-message]');
+    root.className=`global-popup ${type}`;
+    icon.textContent=type==='error'?'!':type==='warning'?'?':'✓';
+    titleEl.textContent=title || (type==='error'?'操作失敗':type==='warning'?'請確認':'操作完成');
+    msg.textContent=String(message||'操作已完成。').trim();
+    root.querySelector('[data-popup-cancel]').hidden=true;
+    root.querySelector('[data-popup-ok]').onclick=()=>{root.hidden=true;document.body.classList.remove('popup-open')};
+    root.hidden=false;document.body.classList.add('popup-open');
+  };
+  window.confirmWorkLifePopup=function(message,onConfirm,title='請確認'){
+    const root=ensurePopup();
+    root.className='global-popup warning';
+    root.querySelector('[data-popup-icon]').textContent='?';
+    root.querySelector('[data-popup-title]').textContent=title;
+    root.querySelector('[data-popup-message]').textContent=message;
+    const ok=root.querySelector('[data-popup-ok]'),cancel=root.querySelector('[data-popup-cancel]');
+    cancel.hidden=false;root.hidden=false;document.body.classList.add('popup-open');
+    ok.onclick=()=>{root.hidden=true;document.body.classList.remove('popup-open');cancel.hidden=true;onConfirm()};
+    cancel.onclick=()=>{root.hidden=true;document.body.classList.remove('popup-open');cancel.hidden=true};
+  };
+  document.addEventListener('DOMContentLoaded',()=>{
+    ensurePopup();
+    const notices=[...document.querySelectorAll('.notice')];
+    if(notices.length){
+      const isError=notices.some(n=>n.classList.contains('error'));
+      const text=notices.map(n=>n.textContent.trim()).filter(Boolean).join('\n');
+      notices.forEach(n=>n.remove());
+      if(text) setTimeout(()=>showWorkLifePopup(text,isError?'error':'success'),80);
+    } else {
+      const q=new URLSearchParams(location.search);
+      let text='';
+      if(q.get('deleted')) text='資料已刪除。';
+      else if(q.get('completed')) text='事項已完成。';
+      else if(q.get('updated')) text='資料已更新。';
+      else if(q.get('checked_in')) text='上班打卡成功。';
+      else if(q.get('checked_out')) text='下班打卡成功。';
+      else if(q.get('arrived')) text='物流已登記到店。';
+      else if(q.get('saved')) text='資料已儲存。';
+      if(text) setTimeout(()=>showWorkLifePopup(text,'success'),80);
+    }
+    document.addEventListener('submit',e=>{
+      const form=e.target;
+      if(!(form instanceof HTMLFormElement) || form.dataset.confirmed==='1') return;
+      const action=(form.getAttribute('action')||'').toLowerCase();
+      const danger=action.includes('delete') || form.querySelector('.danger');
+      if(danger){
+        e.preventDefault();
+        confirmWorkLifePopup('確定要刪除這筆資料嗎？此操作無法復原。',()=>{form.dataset.confirmed='1';form.submit()},'刪除確認');
+      }
+    },true);
+  });
+})();

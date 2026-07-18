@@ -515,42 +515,42 @@ def daily_toggle(request:Request,item_id:int,work_date:str=Form(...)):
     user,resp=protected(request,"/work-records")
     if resp:return resp
     toggle_daily_work(item_id)
-    return RedirectResponse(f"/work-records?work_date={work_date}",303)
+    return RedirectResponse(f"/work-records?work_date={work_date}&updated=1",303)
 
 @app.post("/attendance/check-in")
 def attendance_check_in(request:Request,work_date:str=Form(...)):
     user,resp=protected(request,"/work-records")
     if resp:return resp
     check_in(work_date)
-    return RedirectResponse(f"/work-records?work_date={work_date}",303)
+    return RedirectResponse(f"/work-records?work_date={work_date}&updated=1",303)
 
 @app.post("/attendance/check-out")
 def attendance_check_out(request:Request,work_date:str=Form(...)):
     user,resp=protected(request,"/work-records")
     if resp:return resp
     check_out(work_date)
-    return RedirectResponse(f"/work-records?work_date={work_date}",303)
+    return RedirectResponse(f"/work-records?work_date={work_date}&updated=1",303)
 
 @app.post("/logistics/{item_id}/arrive")
 def logistics_start(request:Request,item_id:int,work_date:str=Form(...)):
     user,resp=protected(request,"/work-records")
     if resp:return resp
     logistics_arrive(item_id)
-    return RedirectResponse(f"/work-records?work_date={work_date}",303)
+    return RedirectResponse(f"/work-records?work_date={work_date}&updated=1",303)
 
 @app.post("/logistics/{item_id}/complete")
 def logistics_finish(request:Request,item_id:int,work_date:str=Form(...)):
     user,resp=protected(request,"/work-records")
     if resp:return resp
     logistics_complete(item_id)
-    return RedirectResponse(f"/work-records?work_date={work_date}",303)
+    return RedirectResponse(f"/work-records?work_date={work_date}&updated=1",303)
 
 @app.post("/work-records")
 def log_add(request:Request,work_date:str=Form(...),category:str=Form(...),title:str=Form(...),amount:int=Form(0),note:str=Form("")):
     user,resp=protected(request,"/work-records")
     if resp:return resp
     add_work_log(work_date,category,title,max(amount,0),note)
-    return RedirectResponse(f"/work-records?work_date={work_date}",303)
+    return RedirectResponse(f"/work-records?work_date={work_date}&updated=1",303)
 
 @app.get("/logistics-settings",response_class=HTMLResponse)
 def logistics_settings_page(request:Request):
@@ -616,14 +616,14 @@ def reminder_done(request:Request,item_id:int):
     user,resp=protected(request,"/notifications")
     if resp:return resp
     complete_reminder(item_id)
-    return RedirectResponse("/notifications",303)
+    return RedirectResponse("/notifications?completed=1",303)
 
 @app.post("/reminders/{item_id}/delete")
 def reminder_remove(request:Request,item_id:int):
     user,resp=protected(request,"/notifications")
     if resp:return resp
     delete_reminder(item_id)
-    return RedirectResponse("/notifications",303)
+    return RedirectResponse("/notifications?deleted=1",303)
 
 @app.get("/tasks",response_class=HTMLResponse)
 def tasks_page(request:Request):
@@ -636,21 +636,21 @@ def task_add(request:Request,title:str=Form(...),due_date:str=Form(""),note:str=
     user,resp=protected(request,"/tasks")
     if resp:return resp
     add_task(title,due_date,note)
-    return RedirectResponse("/tasks",303)
+    return RedirectResponse("/tasks?saved=1",303)
 
 @app.post("/tasks/{item_id}/toggle")
 def task_toggle(request:Request,item_id:int):
     user,resp=protected(request,"/tasks")
     if resp:return resp
     toggle_task(item_id)
-    return RedirectResponse("/tasks",303)
+    return RedirectResponse("/tasks?updated=1",303)
 
 @app.post("/tasks/{item_id}/delete")
 def task_remove(request:Request,item_id:int):
     user,resp=protected(request,"/tasks")
     if resp:return resp
     delete_task(item_id)
-    return RedirectResponse("/tasks",303)
+    return RedirectResponse("/tasks?deleted=1",303)
 
 @app.get("/profile",response_class=HTMLResponse)
 def profile_page(request:Request):
