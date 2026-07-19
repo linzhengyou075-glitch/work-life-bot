@@ -1,0 +1,11 @@
+Work Life 第三包完整可部署版
+
+首頁調整：
+1. 快捷功能置頂
+2. 今日資訊整合至第二區公告輪播
+3. 第三區改為月份行事曆，整合班表、活動、提醒與事項
+4. 保留原有頁面、登入、資料庫、API、物流、活動、提醒及彈跳視窗相關程式
+
+部署：
+Build Command: pip install -r requirements.txt
+Start Command: uvicorn main:app --host 0.0.0.0 --port $PORT

@@ -129,3 +129,34 @@ document.addEventListener("DOMContentLoaded",()=>{
     },true);
   });
 })();
+
+// 首頁改版第一包：公告輪播（純前端，不增加 Render 請求）
+document.addEventListener("DOMContentLoaded",()=>{
+  const root=document.querySelector("[data-dashboard-carousel]");
+  if(!root)return;
+  const track=root.querySelector("[data-dashboard-track]");
+  const slides=[...track.children];
+  const dots=root.querySelector("[data-dashboard-dots]");
+  if(slides.length<2)return;
+  let index=0,timer=null;
+  const buttons=slides.map((_,i)=>{
+    const button=document.createElement("button");
+    button.type="button";
+    button.setAttribute("aria-label",`顯示第 ${i+1} 則資訊`);
+    button.addEventListener("click",()=>show(i,true));
+    dots.appendChild(button);
+    return button;
+  });
+  function show(next,restart=false){
+    index=(next+slides.length)%slides.length;
+    track.style.transform=`translateX(-${index*100}%)`;
+    buttons.forEach((button,i)=>button.classList.toggle("active",i===index));
+    if(restart)start();
+  }
+  function start(){clearInterval(timer);timer=setInterval(()=>show(index+1),6500)}
+  root.addEventListener("mouseenter",()=>clearInterval(timer));
+  root.addEventListener("mouseleave",start);
+  root.addEventListener("focusin",()=>clearInterval(timer));
+  root.addEventListener("focusout",start);
+  show(0);start();
+});

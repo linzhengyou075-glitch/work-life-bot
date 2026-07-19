@@ -1,0 +1,25 @@
+Work Life V1.0.5 Final Stable
+
+請覆蓋專案根目錄：
+1. main.py
+2. database.py
+
+本版內容：
+- 保留 V1.0.4 每日 04:00 輕量維護
+- 班表保留最新兩個月份
+- 已完成事項 60 天、活動 180 天、推播紀錄 30 天
+- 單一 Scheduler，不增加背景程序
+- LINE 推播短暫失敗最多自動重試 3 次
+- 推播成功後才標記完成，避免漏發
+- /healthz 顯示排程循環次數、最近耗時與推播重試次數
+- 使用正式日誌取代直接 print
+- 版本更新為 1.0.5
+
+部署指令維持不變：
+Build：pip install -r requirements.txt
+Start：uvicorn main:app --host 0.0.0.0 --port $PORT
+
+
+V1.0.5.1 封版修正：
+- LINE 重試改為非阻塞等待，不會卡住 FastAPI 主事件迴圈。
+- 每日 04:00 維護同步清理已淘汰班表的通知防重複標記。

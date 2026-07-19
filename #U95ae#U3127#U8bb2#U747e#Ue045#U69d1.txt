@@ -1,0 +1,32 @@
+Work Life V1.0.5.2 Final Stable（完整專案）
+
+這是一份完整專案，可直接上傳至 GitHub／Render。
+
+Build Command:
+pip install -r requirements.txt
+
+Start Command:
+uvicorn main:app --host 0.0.0.0 --port $PORT
+
+Render 必要環境變數：
+LINE_LOGIN_CHANNEL_ID
+LINE_LOGIN_CHANNEL_SECRET
+LINE_CHANNEL_SECRET
+LINE_CHANNEL_ACCESS_TOKEN
+OWNER_LINE_USER_ID
+SESSION_SECRET
+DATABASE_URL（建議使用 PostgreSQL，避免重新部署後資料消失）
+
+LINE Login Callback URL：
+https://你的新Render網址/auth/line/callback
+
+LINE Webhook URL：
+https://你的新Render網址/webhook
+
+本版已修正：
+- 首頁 500：dashboard.html 仍引用已刪除的天氣資料
+- 活動頁 500：缺少 activities.html
+- 移除天氣、全家官網、Rainbow 首頁內容
+- 移除首頁每 15 秒背景請求
+- 新增活動中心及 LINE 活動提醒介面
+- HEAD / 回應 200，避免 Render 健康探測顯示 405

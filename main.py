@@ -182,6 +182,68 @@ def get_next_shift(after_date=None):
     return None
 
 
+
+def month_calendar(anchor=None):
+    """整理首頁月曆需要的班表、活動、提醒與待辦資料。"""
+    anchor = anchor or date.today()
+    first = anchor.replace(day=1)
+    start = first - timedelta(days=first.weekday())
+    next_month = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
+    last = next_month - timedelta(days=1)
+    end = last + timedelta(days=(6 - last.weekday()))
+
+    shift_map = {item["work_date"]: item for item in list_shifts() if start.isoformat() <= item.get("work_date", "") <= end.isoformat()}
+    activity_map = {}
+    for item in list_activities(True, 300):
+        key = item.get("activity_date") or ""
+        if start.isoformat() <= key <= end.isoformat():
+            activity_map.setdefault(key, []).append(item)
+    reminder_map = {}
+    for item in list_reminders(True):
+        key = item.get("remind_date") or ""
+        if start.isoformat() <= key <= end.isoformat():
+            reminder_map.setdefault(key, []).append(item)
+    task_map = {}
+    for item in list_tasks(True):
+        key = item.get("due_date") or ""
+        if start.isoformat() <= key <= end.isoformat():
+            task_map.setdefault(key, []).append(item)
+
+    days = []
+    cursor = start
+    while cursor <= end:
+        key = cursor.isoformat()
+        events = []
+        shift = shift_map.get(key)
+        if shift:
+            events.append({
+                "type": "shift", "icon": shift.get("icon") or "💼",
+                "title": shift.get("shift_name") or "班表",
+                "time": f"{shift.get('start_time') or ''}–{shift.get('end_time') or ''}",
+                "url": "/quick-schedule"
+            })
+        for item in activity_map.get(key, []):
+            events.append({"type": "activity", "icon": "🎉", "title": item.get("title") or "活動", "time": item.get("activity_time") or "全天", "url": "/activities", "done": bool(item.get("is_done"))})
+        for item in reminder_map.get(key, []):
+            events.append({"type": "reminder", "icon": "🔔", "title": item.get("title") or "提醒", "time": item.get("remind_time") or "", "url": "/notifications", "done": bool(item.get("is_done"))})
+        for item in task_map.get(key, []):
+            events.append({"type": "task", "icon": "📝", "title": item.get("title") or "事項", "time": "", "url": "/tasks", "done": bool(item.get("is_done"))})
+        days.append({
+            "date": key, "day": cursor.day, "today": cursor == date.today(),
+            "in_month": cursor.month == first.month, "events": events,
+            "more_count": max(0, len(events) - 3)
+        })
+        cursor += timedelta(days=1)
+
+    prev_month = (first - timedelta(days=1)).replace(day=1)
+    return {
+        "label": f"{first.year} 年 {first.month} 月",
+        "month_value": first.strftime("%Y-%m"),
+        "prev_value": prev_month.strftime("%Y-%m"),
+        "next_value": next_month.strftime("%Y-%m"),
+        "days": days
+    }
+
 def week_schedule(anchor=None):
     anchor=anchor or date.today()
     start=anchor-timedelta(days=anchor.weekday())
@@ -539,12 +601,17 @@ def logout(request:Request):
     return RedirectResponse("/login-page",302)
 
 @app.get("/dashboard",response_class=HTMLResponse)
-def dashboard(request:Request):
+def dashboard(request:Request, month:str=""):
     user,resp=protected(request,"/dashboard")
     if resp:return resp
     now=datetime.now()
     work_date,shift,daily_work,daily_logistics,next_work_item=dashboard_work_context(now)
     today=date.today().isoformat()
+    try:
+        calendar_anchor=datetime.strptime(month, "%Y-%m").date() if month else date.today()
+    except ValueError:
+        calendar_anchor=date.today()
+    calendar=month_calendar(calendar_anchor)
     return templates.TemplateResponse("dashboard.html",{
         "request":request,"user":user,"today":today,"active_work_date":work_date,
         "shift":shift,
@@ -556,6 +623,7 @@ def dashboard(request:Request):
         "reminders":[x for x in list_reminders(False) if x["remind_date"]==today],
         "counts":dashboard_counts(work_date),
         "activities":upcoming_activities(today,5),
+        "calendar":calendar,
         "week_days":week_schedule(),
         "next_shift":get_next_shift(today),
         "now_text":datetime.now().strftime("%Y/%m/%d %H:%M"),

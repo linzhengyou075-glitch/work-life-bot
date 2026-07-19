@@ -1,14 +1,95 @@
-<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/style.css"><title>Work Life 首頁</title></head>
-<body class="wl-body"><header class="wl-header"><a href="/dashboard" class="wl-brand"><img src="/static/worklife_mascot.png"><b>Work Life</b><small>首頁</small></a><nav><a class="active" href="/dashboard">首頁</a><a href="/quick-schedule">快速班表</a><a href="/work-records">工作事項</a><a href="/logistics-settings">物流設定</a><a href="/activities">活動</a><a href="/notifications">提醒</a><a href="/profile">設定</a></nav></header>
-<main class="wl-main">
-<div class="page-head"><div><h1>今天的 Work Life</h1><p>{{ today_label }}・資料只在開啟或重新整理頁面時載入。</p></div><a class="wl-btn ghost" href="/dashboard">重新整理</a></div>
-<section class="wl-card" data-smart-shift-card data-shift-start="{{ shift.start_time if shift else '' }}" data-shift-end="{{ (shift.overtime_end if shift and shift.overtime else shift.end_time) if shift else '' }}" data-shift-start-date="{{ shift.start_date if shift else '' }}" data-shift-end-date="{{ shift.end_date if shift else '' }}">
-  <div class="page-head"><div><small data-shift-store>🏪 {{ shift.store_name if shift else '今日沒有排班' }}</small><h2 data-shift-name>{{ shift.shift_name if shift else '自由安排' }}</h2></div><div><small data-countdown-label>今日狀態</small><b data-shift-countdown>{% if shift %}計算中{% else %}自由安排{% endif %}</b></div></div>
-  {% if shift %}<div class="grid"><div><small>上班</small><b data-shift-start-text>{{ shift.start_display }}</b></div><div><small>下班</small><b data-shift-end-text>{{ shift.end_display }}</b></div><div><small>工作進度</small><b>{{ counts.work_done }}/{{ counts.work_total }}</b></div><div><small>物流</small><b>{{ counts.logistics_done }}/{{ counts.logistics_total }}</b></div></div>{% else %}<p>目前沒有今天的班表，可前往快速班表新增或上傳。</p>{% endif %}
-</section>
-<div class="work-layout"><section class="wl-card"><div class="page-head"><div><h2>📅 本週班表</h2><p>只顯示本週資料。</p></div><a href="/quick-schedule">管理班表</a></div>{% for d in week_days %}<div class="reminder-item"><div><b>{{ d.date }}（{{ d.weekday }}）{% if d.today %}・今天{% endif %}</b>{% if d.shift %}<small>{{ d.shift.icon }} {{ d.shift.shift_name }}・{{ d.shift.start_time }}－{{ d.shift.end_time }}</small>{% else %}<small>未排班</small>{% endif %}</div></div>{% endfor %}</section>
-<aside><section class="wl-card"><div class="page-head"><div><h2>📢 活動提醒</h2><p>自行設定的近期活動。</p></div><a href="/activities">新增活動</a></div>{% for item in activities %}<div class="reminder-item"><div><b>{{ item.title }}</b><small>{{ item.activity_date }} {{ item.activity_time or '全天' }}</small>{% if item.location %}<p>📍 {{ item.location }}</p>{% endif %}</div></div>{% else %}<p>目前沒有近期活動。</p>{% endfor %}</section>
-<section class="wl-card"><div class="page-head"><div><h2>🔔 今日提醒</h2></div><a href="/notifications">管理提醒</a></div>{% for item in reminders %}<div class="reminder-item"><div><b>{{ item.title }}</b><small>{{ item.remind_time }}・{{ item.reminder_type }}</small><p>{{ item.note }}</p></div></div>{% else %}<p>今天沒有提醒。</p>{% endfor %}</section></aside></div>
-<div class="work-layout"><section class="wl-card"><div class="page-head"><div><h2>✅ 今日工作</h2></div><a href="/work-records">查看全部</a></div>{% for item in daily_work[:6] %}<div class="reminder-item {{ 'done' if item.is_done else '' }}"><div><b>{{ item.icon }} {{ item.title }}</b><small>{{ item.datetime_display }}</small></div></div>{% else %}<p>目前沒有今日工作事項。</p>{% endfor %}</section>
-<section class="wl-card"><div class="page-head"><div><h2>🚚 今日物流</h2></div><a href="/logistics-settings">物流設定</a></div>{% for item in daily_logistics[:6] %}<div class="reminder-item"><div><b>{{ item.icon }} {{ item.name }}</b><small>{{ item.datetime_display }}</small></div></div>{% else %}<p>目前沒有今日物流。</p>{% endfor %}</section></div>
-</main><script src="/static/app.js"></script></body></html>
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="/static/style.css">
+  <title>Work Life 首頁</title>
+</head>
+<body class="wl-body dashboard-v2">
+<header class="wl-header">
+  <a href="/dashboard" class="wl-brand"><img src="/static/worklife_mascot.png"><b>Work Life</b><small>首頁</small></a>
+  <nav>
+    <a class="active" href="/dashboard">首頁</a><a href="/quick-schedule">快速班表</a><a href="/work-records">工作事項</a><a href="/logistics-settings">物流設定</a><a href="/activities">活動</a><a href="/notifications">提醒</a><a href="/profile">設定</a>
+  </nav>
+</header>
+
+<main class="wl-main dashboard-shell">
+  <div class="page-head dashboard-titlebar">
+    <div><h1>今天的 Work Life</h1><p>{{ today_label }}・工作資訊一次掌握</p></div>
+    <a class="wl-btn ghost" href="/dashboard">重新整理</a>
+  </div>
+
+  <section class="dashboard-quickbar" aria-label="快捷功能">
+    <a href="/work-records" class="quick-action"><span>📝</span><b>新增事項</b><small>工作事項</small></a>
+    <a href="/activities" class="quick-action"><span>🎉</span><b>新增活動</b><small>活動中心</small></a>
+    <a href="/quick-schedule" class="quick-action"><span>📅</span><b>管理班表</b><small>新增或上傳</small></a>
+    <a href="/notifications" class="quick-action"><span>🔔</span><b>提醒</b><small>管理通知</small></a>
+    <a href="/logistics-settings" class="quick-action"><span>🚚</span><b>物流</b><small>物流設定</small></a>
+    <a href="/profile" class="quick-action"><span>⚙️</span><b>設定</b><small>個人設定</small></a>
+  </section>
+
+  <section class="dashboard-notice-carousel" data-dashboard-carousel>
+    <div class="dashboard-notice-track" data-dashboard-track>
+      <article class="dashboard-notice-slide">
+        <span class="notice-icon">{% if shift %}{{ shift.icon or '📅' }}{% else %}🫧{% endif %}</span>
+        <div><small>今日班別</small><h2>{% if shift %}{{ shift.shift_name }}・{{ shift.store_name }}{% else %}今天沒有排班{% endif %}</h2><p>{% if shift %}{{ shift.start_display }} ～ {{ shift.end_display }}{% else %}今天可以自由安排生活事項。{% endif %}</p></div>
+      </article>
+      <article class="dashboard-notice-slide" data-smart-shift-card data-shift-start="{{ shift.start_time if shift else '' }}" data-shift-end="{{ (shift.overtime_end if shift and shift.overtime else shift.end_time) if shift else '' }}" data-shift-start-date="{{ shift.start_date if shift else '' }}" data-shift-end-date="{{ shift.end_date if shift else '' }}">
+        <span class="notice-icon">⏰</span>
+        <div><small data-countdown-label>今日狀態</small><h2 data-shift-countdown>{% if shift %}計算中{% else %}自由安排{% endif %}</h2><p>工作進度 {{ counts.work_done }}/{{ counts.work_total }}・物流 {{ counts.logistics_done }}/{{ counts.logistics_total }}</p></div>
+      </article>
+      <article class="dashboard-notice-slide">
+        <span class="notice-icon">🔔</span>
+        <div><small>今日提醒</small><h2>{% if reminders %}共 {{ reminders|length }} 筆提醒{% else %}今天沒有提醒{% endif %}</h2><p>{% if reminders %}{{ reminders[0].title }}・{{ reminders[0].remind_time }}{% else %}目前沒有需要處理的提醒。{% endif %}</p></div>
+      </article>
+      <article class="dashboard-notice-slide">
+        <span class="notice-icon">🎉</span>
+        <div><small>近期活動</small><h2>{% if activities %}{{ activities[0].title }}{% else %}目前沒有近期活動{% endif %}</h2><p>{% if activities %}{{ activities[0].activity_date }} {{ activities[0].activity_time or '全天' }}{% else %}可從上方快捷功能新增活動。{% endif %}</p></div>
+      </article>
+      <article class="dashboard-notice-slide">
+        <span class="notice-icon">📋</span>
+        <div><small>今日總覽</small><h2>{{ counts.work_total - counts.work_done }} 項工作待完成</h2><p>待辦 {{ counts.pending_tasks }} 筆・今日物流 {{ counts.logistics_total }} 筆</p></div>
+      </article>
+    </div>
+    <div class="dashboard-notice-dots" data-dashboard-dots></div>
+  </section>
+
+  <section class="wl-card dashboard-calendar-card dashboard-month-card">
+    <div class="page-head calendar-titlebar">
+      <div><small>整合行事曆</small><h2>📆 {{ calendar.label }}</h2><p>班表、活動、提醒與事項集中顯示。</p></div>
+      <div class="calendar-nav-actions">
+        <a class="wl-btn ghost compact" href="/dashboard?month={{ calendar.prev_value }}">‹ 上個月</a>
+        <a class="wl-btn ghost compact" href="/dashboard">本月</a>
+        <a class="wl-btn ghost compact" href="/dashboard?month={{ calendar.next_value }}">下個月 ›</a>
+      </div>
+    </div>
+    <div class="dashboard-week-head" aria-hidden="true"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
+    <div class="dashboard-month-grid">
+      {% for d in calendar.days %}
+      <article class="dashboard-month-day {{ 'today' if d.today else '' }} {{ 'out-month' if not d.in_month else '' }}">
+        <div class="dashboard-day-number"><b>{{ d.day }}</b>{% if d.today %}<small>今天</small>{% endif %}</div>
+        <div class="calendar-events">
+          {% for event in d.events[:3] %}
+          <a href="{{ event.url }}" class="calendar-event calendar-event-{{ event.type }} {{ 'is-done' if event.done else '' }}" title="{{ event.title }}">
+            <span>{{ event.icon }}</span><b>{{ event.title }}</b>{% if event.time %}<small>{{ event.time }}</small>{% endif %}
+          </a>
+          {% endfor %}
+          {% if d.more_count %}<small class="calendar-more">還有 {{ d.more_count }} 筆</small>{% endif %}
+          {% if not d.events and d.in_month %}<span class="calendar-empty-dot">・</span>{% endif %}
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+    <div class="calendar-legend"><span><i class="legend-shift"></i>班表</span><span><i class="legend-activity"></i>活動</span><span><i class="legend-reminder"></i>提醒</span><span><i class="legend-task"></i>事項</span></div>
+  </section>
+
+  <div class="dashboard-lower-grid">
+    <section class="wl-card"><div class="page-head"><div><h2>✅ 今日工作</h2></div><a href="/work-records">查看全部</a></div>{% for item in daily_work[:5] %}<div class="reminder-item {{ 'done' if item.is_done else '' }}"><div><b>{{ item.icon }} {{ item.title }}</b><small>{{ item.datetime_display }}</small></div></div>{% else %}<p>目前沒有今日工作事項。</p>{% endfor %}</section>
+    <section class="wl-card"><div class="page-head"><div><h2>🚚 今日物流</h2></div><a href="/logistics-settings">物流設定</a></div>{% for item in daily_logistics[:5] %}<div class="reminder-item"><div><b>{{ item.icon }} {{ item.name }}</b><small>{{ item.datetime_display }}</small></div></div>{% else %}<p>目前沒有今日物流。</p>{% endfor %}</section>
+    <section class="wl-card"><div class="page-head"><div><h2>📢 活動提醒</h2></div><a href="/activities">管理活動</a></div>{% for item in activities[:5] %}<div class="reminder-item"><div><b>{{ item.title }}</b><small>{{ item.activity_date }} {{ item.activity_time or '全天' }}</small></div></div>{% else %}<p>目前沒有近期活動。</p>{% endfor %}</section>
+  </div>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>
