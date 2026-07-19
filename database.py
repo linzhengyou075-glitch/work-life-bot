@@ -1,5 +1,5 @@
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import re
 import sqlite3
@@ -127,6 +127,44 @@ def database_status() -> dict:
         "backend": "sqlite",
     }
 
+
+
+def database_health_check() -> dict:
+    """執行一次極輕量連線與主要資料表檢查；僅供 /healthz 呼叫。"""
+    required_tables = (
+        "shifts", "daily_work_items", "daily_logistics", "reminders",
+        "activities", "tasks", "notification_logs", "app_settings",
+        "maintenance_logs",
+    )
+    started = datetime.now()
+    try:
+        with connect() as db:
+            db.execute("SELECT 1").fetchone()
+            missing = []
+            for table in required_tables:
+                try:
+                    db.execute(f'SELECT 1 FROM "{table}" LIMIT 1').fetchone()
+                except Exception:
+                    missing.append(table)
+        elapsed_ms = max(0, int((datetime.now() - started).total_seconds() * 1000))
+        return {
+            "ok": not missing,
+            "connected": True,
+            "missing_tables": missing,
+            "checked_tables": len(required_tables),
+            "latency_ms": elapsed_ms,
+            "error": "" if not missing else "缺少主要資料表",
+        }
+    except Exception as exc:
+        elapsed_ms = max(0, int((datetime.now() - started).total_seconds() * 1000))
+        return {
+            "ok": False,
+            "connected": False,
+            "missing_tables": [],
+            "checked_tables": 0,
+            "latency_ms": elapsed_ms,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
 
 def connect():
     """有 DATABASE_URL 時使用共用 PostgreSQL 的 worklife schema；否則保留 SQLite 備援。"""
@@ -275,6 +313,20 @@ def init_db():
             is_done INTEGER DEFAULT 0,
             created_at TEXT
         );
+        CREATE TABLE IF NOT EXISTS activities(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            activity_date TEXT NOT NULL,
+            activity_time TEXT DEFAULT '',
+            location TEXT DEFAULT '',
+            note TEXT DEFAULT '',
+            line_push INTEGER DEFAULT 1,
+            remind_minutes INTEGER DEFAULT 30,
+            is_done INTEGER DEFAULT 0,
+            created_at TEXT,
+            updated_at TEXT,
+            reminded_at TEXT
+        );
         CREATE TABLE IF NOT EXISTS notification_logs(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
@@ -314,6 +366,24 @@ def init_db():
             setting_value TEXT DEFAULT '',
             updated_at TEXT
         );
+        CREATE TABLE IF NOT EXISTS maintenance_logs(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_date TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            finished_at TEXT NOT NULL,
+            duration_ms INTEGER DEFAULT 0,
+            shift_cutoff TEXT DEFAULT '',
+            shifts_deleted INTEGER DEFAULT 0,
+            work_items_deleted INTEGER DEFAULT 0,
+            logistics_deleted INTEGER DEFAULT 0,
+            attendance_deleted INTEGER DEFAULT 0,
+            tasks_deleted INTEGER DEFAULT 0,
+            reminders_deleted INTEGER DEFAULT 0,
+            activities_deleted INTEGER DEFAULT 0,
+            notification_logs_deleted INTEGER DEFAULT 0,
+            status TEXT DEFAULT '完成',
+            error_message TEXT DEFAULT ''
+        );
         """)
         # 舊版本資料庫完整相容升級。覆蓋部署時不刪除既有資料。
         migrations = {
@@ -326,17 +396,175 @@ def init_db():
             "logistics_settings": ["icon TEXT DEFAULT '🚚'", "start_time TEXT DEFAULT '00:00'", "end_time TEXT DEFAULT '00:00'", "content TEXT DEFAULT ''", "applies_b INTEGER DEFAULT 1", "applies_c INTEGER DEFAULT 1", "applies_late INTEGER DEFAULT 0", "applies_night INTEGER DEFAULT 0", "remind_minutes INTEGER DEFAULT 10", "line_push INTEGER DEFAULT 1", "show_carousel INTEGER DEFAULT 1", "is_active INTEGER DEFAULT 1", "updated_at TEXT"],
             "daily_logistics": ["shift_id INTEGER", "logistics_id INTEGER", "arrived_at TEXT", "completed_at TEXT", "reminded_at TEXT", "created_at TEXT"],
             "reminders": ["reminder_type TEXT DEFAULT '自訂'", "note TEXT DEFAULT ''", "related_url TEXT DEFAULT '/dashboard'", "line_push INTEGER DEFAULT 1", "show_carousel INTEGER DEFAULT 1", "sent_at TEXT", "is_done INTEGER DEFAULT 0", "created_at TEXT"],
+            "activities": ["activity_time TEXT DEFAULT ''", "location TEXT DEFAULT ''", "note TEXT DEFAULT ''", "line_push INTEGER DEFAULT 1", "remind_minutes INTEGER DEFAULT 30", "is_done INTEGER DEFAULT 0", "created_at TEXT", "updated_at TEXT", "reminded_at TEXT"],
             "notification_logs": ["content TEXT DEFAULT ''", "notification_type TEXT DEFAULT '系統'", "status TEXT DEFAULT '已推播'", "sent_at TEXT"],
             "attendance": ["shift_id INTEGER", "check_in_at TEXT", "check_out_at TEXT", "updated_at TEXT"],
             "tasks": ["due_date TEXT", "note TEXT DEFAULT ''", "is_done INTEGER DEFAULT 0", "created_at TEXT", "completed_at TEXT"],
             "work_logs": ["amount INTEGER DEFAULT 0", "note TEXT DEFAULT ''", "created_at TEXT"],
             "app_settings": ["setting_value TEXT DEFAULT ''", "updated_at TEXT"],
+            "maintenance_logs": ["run_date TEXT", "started_at TEXT", "finished_at TEXT", "duration_ms INTEGER DEFAULT 0", "shift_cutoff TEXT DEFAULT ''", "shifts_deleted INTEGER DEFAULT 0", "work_items_deleted INTEGER DEFAULT 0", "logistics_deleted INTEGER DEFAULT 0", "attendance_deleted INTEGER DEFAULT 0", "tasks_deleted INTEGER DEFAULT 0", "reminders_deleted INTEGER DEFAULT 0", "activities_deleted INTEGER DEFAULT 0", "notification_logs_deleted INTEGER DEFAULT 0", "status TEXT DEFAULT '完成'", "error_message TEXT DEFAULT ''"],
         }
         for table, definitions in migrations.items():
             for definition in definitions:
                 _add_column(db, table, definition)
         _apply_default_migration(db)
         _apply_phase2_migration(db)
+        _apply_performance_indexes(db)
+
+
+def _apply_performance_indexes(db):
+    """建立排程與首頁常用索引；可重複執行，不改動既有資料。"""
+    statements = [
+        "CREATE INDEX IF NOT EXISTS idx_shifts_work_date ON shifts(work_date)",
+        "CREATE INDEX IF NOT EXISTS idx_daily_work_date_done ON daily_work_items(work_date,is_done)",
+        "CREATE INDEX IF NOT EXISTS idx_daily_logistics_date ON daily_logistics(work_date)",
+        "CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(remind_date,remind_time,is_done,sent_at,line_push)",
+        "CREATE INDEX IF NOT EXISTS idx_activities_due ON activities(activity_date,is_done,reminded_at,line_push)",
+        "CREATE INDEX IF NOT EXISTS idx_tasks_pending ON tasks(is_done,due_date)",
+        "CREATE INDEX IF NOT EXISTS idx_notification_logs_sent ON notification_logs(sent_at)",
+        "CREATE INDEX IF NOT EXISTS idx_work_logs_date ON work_logs(work_date)",
+        "CREATE INDEX IF NOT EXISTS idx_maintenance_logs_run_date ON maintenance_logs(run_date,started_at)",
+    ]
+    for sql in statements:
+        db.execute(sql)
+
+
+def _first_day_previous_month(day):
+    first = day.replace(day=1)
+    return (first - timedelta(days=1)).replace(day=1)
+
+
+def latest_maintenance_log():
+    """回傳最近一次每日維護摘要；沒有紀錄時回傳 None。"""
+    with connect() as db:
+        row = db.execute("SELECT * FROM maintenance_logs ORDER BY started_at DESC,id DESC LIMIT 1").fetchone()
+        return dict(row) if row else None
+
+
+def run_daily_maintenance(today=None):
+    """每天 04:00 執行一次的低負載維護，並只保留最近 10 次摘要。"""
+    import time
+    today = today or datetime.now().date()
+    started = datetime.now()
+    started_clock = time.monotonic()
+
+    task_cutoff = (today - timedelta(days=60)).isoformat()
+    activity_cutoff = (today - timedelta(days=180)).isoformat()
+    log_cutoff = (today - timedelta(days=30)).isoformat()
+    result = {
+        "run_date": today.isoformat(),
+        "started_at": started.strftime("%Y-%m-%d %H:%M:%S"),
+        "shift_cutoff": "",
+        "shifts_deleted": 0,
+        "work_items_deleted": 0,
+        "logistics_deleted": 0,
+        "attendance_deleted": 0,
+        "tasks_deleted": 0,
+        "reminders_deleted": 0,
+        "activities_deleted": 0,
+        "notification_logs_deleted": 0,
+        "shift_markers_deleted": 0,
+        "status": "完成",
+        "error_message": "",
+    }
+
+    try:
+        with connect() as db:
+            # 以班表資料中最新月份為基準，只保留最新兩個月份。
+            latest = db.execute("SELECT MAX(work_date) AS latest_work_date FROM shifts").fetchone()
+            latest_date_text = latest["latest_work_date"] if latest else None
+            if latest_date_text:
+                latest_day = datetime.strptime(str(latest_date_text)[:10], "%Y-%m-%d").date()
+                shift_cutoff = _first_day_previous_month(latest_day).isoformat()
+                result["shift_cutoff"] = shift_cutoff
+
+                # 先清除由舊班表產生的附屬資料，再刪除舊班表。
+                result["work_items_deleted"] = db.execute(
+                    "DELETE FROM daily_work_items WHERE work_date<?", (shift_cutoff,)
+                ).rowcount
+                result["logistics_deleted"] = db.execute(
+                    "DELETE FROM daily_logistics WHERE work_date<?", (shift_cutoff,)
+                ).rowcount
+                result["attendance_deleted"] = db.execute(
+                    "DELETE FROM attendance WHERE work_date<?", (shift_cutoff,)
+                ).rowcount
+                result["shifts_deleted"] = db.execute(
+                    "DELETE FROM shifts WHERE work_date<?", (shift_cutoff,)
+                ).rowcount
+
+                # 班表通知防重複標記會隨月份累積；同步清除已淘汰班表的舊標記。
+                # setting_key 格式：shift_push_sent:YYYY-MM-DD:HH:MM
+                result["shift_markers_deleted"] = db.execute(
+                    """DELETE FROM app_settings
+                       WHERE setting_key LIKE 'shift_push_sent:%'
+                       AND substr(setting_key,17,10)<?""",
+                    (shift_cutoff,),
+                ).rowcount
+
+            # 未完成事項永久保留；只有已完成且超過 60 天才清除。
+            result["tasks_deleted"] = db.execute(
+                """DELETE FROM tasks
+                   WHERE is_done=1
+                   AND COALESCE(substr(completed_at,1,10),due_date,substr(created_at,1,10),'9999-12-31')<?""",
+                (task_cutoff,),
+            ).rowcount
+            result["reminders_deleted"] = db.execute(
+                "DELETE FROM reminders WHERE is_done=1 AND remind_date<?", (task_cutoff,)
+            ).rowcount
+
+            # 未完成活動永久保留。
+            result["activities_deleted"] = db.execute(
+                "DELETE FROM activities WHERE is_done=1 AND activity_date<?", (activity_cutoff,)
+            ).rowcount
+
+            # LINE 推播紀錄只保留最近 30 天。
+            result["notification_logs_deleted"] = db.execute(
+                "DELETE FROM notification_logs WHERE sent_at IS NOT NULL AND substr(sent_at,1,10)<?",
+                (log_cutoff,),
+            ).rowcount
+
+            if not DATABASE_URL:
+                # SQLite 只做輕量最佳化，不執行耗時 VACUUM。
+                db.execute("PRAGMA optimize")
+
+            result["finished_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            result["duration_ms"] = max(0, int((time.monotonic() - started_clock) * 1000))
+            db.execute(
+                """INSERT INTO maintenance_logs(
+                    run_date,started_at,finished_at,duration_ms,shift_cutoff,
+                    shifts_deleted,work_items_deleted,logistics_deleted,attendance_deleted,
+                    tasks_deleted,reminders_deleted,activities_deleted,notification_logs_deleted,status,error_message
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    result["run_date"],result["started_at"],result["finished_at"],result["duration_ms"],result["shift_cutoff"],
+                    result["shifts_deleted"],result["work_items_deleted"],result["logistics_deleted"],result["attendance_deleted"],
+                    result["tasks_deleted"],result["reminders_deleted"],result["activities_deleted"],result["notification_logs_deleted"],
+                    result["status"],result["error_message"],
+                ),
+            )
+            db.execute(
+                "DELETE FROM maintenance_logs WHERE id NOT IN (SELECT id FROM maintenance_logs ORDER BY started_at DESC,id DESC LIMIT 10)"
+            )
+        return result
+    except Exception as exc:
+        result["status"] = "失敗"
+        result["error_message"] = f"{type(exc).__name__}: {exc}"
+        result["finished_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        result["duration_ms"] = max(0, int((time.monotonic() - started_clock) * 1000))
+        try:
+            with connect() as db:
+                db.execute(
+                    """INSERT INTO maintenance_logs(
+                        run_date,started_at,finished_at,duration_ms,shift_cutoff,status,error_message
+                    ) VALUES (?,?,?,?,?,?,?)""",
+                    (result["run_date"],result["started_at"],result["finished_at"],result["duration_ms"],result["shift_cutoff"],result["status"],result["error_message"]),
+                )
+                db.execute(
+                    "DELETE FROM maintenance_logs WHERE id NOT IN (SELECT id FROM maintenance_logs ORDER BY started_at DESC,id DESC LIMIT 10)"
+                )
+        except Exception:
+            pass
+        raise
 
 def _template_id(db, name, description):
     db.execute("INSERT OR IGNORE INTO work_templates(name,description) VALUES (?,?)", (name,description))
@@ -828,3 +1056,89 @@ def get_setting(key,default=""):
     with connect() as db:
         r=db.execute("SELECT setting_value FROM app_settings WHERE setting_key=?",(key,)).fetchone()
         return r["setting_value"] if r else default
+
+
+def add_activity(title, activity_date, activity_time="", location="", note="", line_push=True, remind_minutes=30):
+    now=datetime.now().isoformat(timespec="seconds")
+    with connect() as db:
+        db.execute(
+            """INSERT INTO activities(title,activity_date,activity_time,location,note,line_push,remind_minutes,is_done,created_at,updated_at,reminded_at)
+               VALUES (?,?,?,?,?,?,?,0,?,?,NULL)""",
+            (title,activity_date,activity_time or "",location or "",note or "",1 if line_push else 0,max(int(remind_minutes or 0),0),now,now)
+        )
+
+
+def get_activity(item_id):
+    with connect() as db:
+        row=db.execute("SELECT * FROM activities WHERE id=?",(item_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def update_activity(item_id,title,activity_date,activity_time="",location="",note="",line_push=True,remind_minutes=30):
+    now=datetime.now().isoformat(timespec="seconds")
+    with connect() as db:
+        db.execute(
+            """UPDATE activities SET title=?,activity_date=?,activity_time=?,location=?,note=?,line_push=?,
+               remind_minutes=?,updated_at=?,reminded_at=NULL WHERE id=?""",
+            (title,activity_date,activity_time or "",location or "",note or "",1 if line_push else 0,
+             max(int(remind_minutes or 0),0),now,item_id)
+        )
+
+
+def complete_activity(item_id, done=True):
+    with connect() as db:
+        db.execute("UPDATE activities SET is_done=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",(1 if done else 0,item_id))
+
+
+def delete_activity(item_id):
+    with connect() as db:
+        db.execute("DELETE FROM activities WHERE id=?",(item_id,))
+
+
+def mark_activity_reminded(item_id):
+    with connect() as db:
+        db.execute("UPDATE activities SET reminded_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?",(item_id,))
+
+
+def due_activities(now_date, now_time):
+    now=datetime.strptime(f"{now_date} {now_time}","%Y-%m-%d %H:%M")
+    due=[]
+    with connect() as db:
+        rows=db.execute("""SELECT * FROM activities
+                           WHERE is_done=0 AND line_push=1 AND reminded_at IS NULL
+                             AND activity_date BETWEEN ? AND ?
+                           ORDER BY activity_date, CASE WHEN activity_time='' THEN '09:00' ELSE activity_time END""",
+                        ((now.date()-timedelta(days=2)).isoformat(),(now.date()+timedelta(days=2)).isoformat())).fetchall()
+    for row in rows:
+        item=dict(row)
+        event_time=item.get("activity_time") or "09:00"
+        try:
+            event_at=datetime.strptime(f"{item['activity_date']} {event_time}","%Y-%m-%d %H:%M")
+        except ValueError:
+            continue
+        remind_at=event_at-timedelta(minutes=int(item.get("remind_minutes") or 0))
+        if remind_at <= now < event_at+timedelta(minutes=5):
+            item["event_time"]=event_time
+            due.append(item)
+    return due
+
+
+def list_activities(include_done=True, limit=100):
+    sql="SELECT * FROM activities"
+    params=[]
+    if not include_done:
+        sql += " WHERE is_done=0"
+    sql += " ORDER BY activity_date ASC, CASE WHEN activity_time='' THEN '23:59' ELSE activity_time END ASC, id ASC LIMIT ?"
+    params.append(limit)
+    with connect() as db:
+        return [dict(row) for row in db.execute(sql,params).fetchall()]
+
+
+def upcoming_activities(today, limit=5):
+    with connect() as db:
+        rows=db.execute(
+            """SELECT * FROM activities WHERE is_done=0 AND activity_date>=?
+               ORDER BY activity_date ASC, CASE WHEN activity_time='' THEN '23:59' ELSE activity_time END ASC, id ASC LIMIT ?""",
+            (today,limit)
+        ).fetchall()
+        return [dict(row) for row in rows]

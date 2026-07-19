@@ -1,13 +1,13 @@
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from io import BytesIO
 from pathlib import Path
 import asyncio
-import json
+import logging
 import sqlite3
+import time
 import re
 import urllib.parse
-import urllib.request
-from html.parser import HTMLParser
 
 from fastapi import FastAPI, Request, Form, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
@@ -24,213 +24,51 @@ from database import (
     attendance_for,check_in,check_out,add_reminder,list_reminders,due_reminders,
     mark_reminder_sent,complete_reminder,delete_reminder,add_notification_log,
     list_notification_logs,add_task,list_tasks,toggle_task,delete_task,
+    add_activity,get_activity,update_activity,complete_activity,delete_activity,mark_activity_reminded,due_activities,list_activities,upcoming_activities,
     add_work_log,list_work_logs,delete_work_log,dashboard_counts,set_setting,get_setting,
-    database_status
+    database_status,database_health_check,run_daily_maintenance,latest_maintenance_log
 )
 from line_api import verify_signature,reply_message,work_entry_flex,push_message,reminder_flex
 
 BASE_DIR = Path(__file__).resolve().parent
-
-_WEATHER_CACHE = {"at": None, "data": None}
-
-WEATHER_CODES = {
-    0:("☀️","晴朗"),1:("🌤️","大致晴朗"),2:("⛅","局部多雲"),3:("☁️","陰天"),
-    45:("🌫️","有霧"),48:("🌫️","霧淞"),51:("🌦️","毛毛雨"),53:("🌦️","毛毛雨"),55:("🌧️","較強毛毛雨"),
-    61:("🌦️","小雨"),63:("🌧️","中雨"),65:("🌧️","大雨"),66:("🌨️","凍雨"),67:("🌨️","強凍雨"),
-    71:("🌨️","小雪"),73:("🌨️","中雪"),75:("❄️","大雪"),77:("🌨️","霰"),
-    80:("🌦️","陣雨"),81:("🌧️","較強陣雨"),82:("⛈️","強陣雨"),85:("🌨️","陣雪"),86:("❄️","強陣雪"),
-    95:("⛈️","雷雨"),96:("⛈️","雷雨伴冰雹"),99:("⛈️","強雷雨伴冰雹")
+TAIPEI_TZ = ZoneInfo("Asia/Taipei")
+_SCHEDULER_TASK = None
+_SCHEDULER_STOP_EVENT = None
+_SCHEDULER_INTERVAL_SECONDS = 60
+_STATIC_CACHE_SECONDS = 300
+_IMAGE_CACHE_SECONDS = 86400
+_REMINDER_WORKER_STATE = {
+    "running": False,
+    "last_check": None,
+    "last_error": None,
+    "task_name": "work-life-scheduler",
+    "interval_seconds": _SCHEDULER_INTERVAL_SECONDS,
+    "last_maintenance": None,
+    "cycle_count": 0,
+    "last_cycle_ms": None,
+    "last_push_retry_count": 0,
 }
 
-def get_open_meteo_weather():
-    now=datetime.now()
-    cached_at=_WEATHER_CACHE.get("at")
-    if cached_at and _WEATHER_CACHE.get("data") and (now-cached_at).total_seconds()<900:
-        return _WEATHER_CACHE["data"]
-    params=urllib.parse.urlencode({
-        "latitude":24.1271,"longitude":120.7189,"timezone":"Asia/Taipei",
-        "current":"temperature_2m,apparent_temperature,weather_code,wind_speed_10m",
-        "hourly":"precipitation_probability","forecast_days":1
-    })
-    try:
-        req=urllib.request.Request("https://api.open-meteo.com/v1/forecast?"+params,headers={"User-Agent":"WorkLife/4.1"})
-        with urllib.request.urlopen(req,timeout=4) as response:
-            payload=json.load(response)
-        current=payload.get("current") or {}
-        code=int(current.get("weather_code",3))
-        icon,text=WEATHER_CODES.get(code,("🌤️","天氣資訊"))
-        probability=0
-        hourly=payload.get("hourly") or {}
-        times=hourly.get("time") or []
-        probs=hourly.get("precipitation_probability") or []
-        target=(current.get("time") or "")[:13]
-        for i,t in enumerate(times):
-            if str(t).startswith(target) and i<len(probs):
-                probability=probs[i] or 0; break
-        data={"ok":True,"icon":icon,"text":text,"temperature":round(float(current.get("temperature_2m",0))),
-              "apparent":round(float(current.get("apparent_temperature",0))),"rain":int(probability),
-              "wind":round(float(current.get("wind_speed_10m",0)),1),"location":"台中太平"}
-        _WEATHER_CACHE.update(at=now,data=data)
-        return data
-    except Exception:
-        stale=_WEATHER_CACHE.get("data")
-        if stale: return stale
-        return {"ok":False,"icon":"🌤️","text":"暫時無法取得","temperature":"--","apparent":"--","rain":"--","wind":"--","location":"台中太平"}
+logger = logging.getLogger("worklife")
 
-
-def get_cwa_taiping_weather():
-    """中央氣象署官方鄉鎮預報；需在部署環境設定 CWA_API_KEY。"""
-    if not settings.cwa_api_key:
-        return None
-    params=urllib.parse.urlencode({
-        "Authorization":settings.cwa_api_key,
-        "LocationName":"太平區",
-        "ElementName":"天氣現象,平均溫度,體感溫度,12小時降雨機率,風速"
-    })
-    req=urllib.request.Request(
-        "https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-D0047-073?"+params,
-        headers={"User-Agent":"WorkLife/4.2"}
-    )
-    with urllib.request.urlopen(req,timeout=6) as response:
-        payload=json.load(response)
-    locations=((payload.get("records") or {}).get("Locations") or (payload.get("records") or {}).get("locations") or [])
-    if not locations:
-        return None
-    towns=locations[0].get("Location") or locations[0].get("location") or []
-    town=next((x for x in towns if (x.get("LocationName") or x.get("locationName"))=="太平區"), towns[0] if towns else None)
-    if not town:
-        return None
-    elements=town.get("WeatherElement") or town.get("weatherElement") or []
-    values={}
-    for element in elements:
-        name=element.get("ElementName") or element.get("elementName") or ""
-        periods=element.get("Time") or element.get("time") or []
-        if not periods:
-            continue
-        period=periods[0]
-        item=(period.get("ElementValue") or period.get("elementValue") or [{}])[0]
-        values[name]=item.get("Weather") or item.get("Temperature") or item.get("ProbabilityOfPrecipitation") or item.get("WindSpeed") or item.get("value")
-    text=str(values.get("天氣現象") or "天氣資訊")
-    icon="☀️" if "晴" in text else "⛈️" if "雷" in text else "🌧️" if "雨" in text else "☁️" if "陰" in text else "⛅"
-    def number(value, default="--"):
-        try:return round(float(value))
-        except:return default
-    return {
-        "ok":True,"icon":icon,"text":text,
-        "temperature":number(values.get("平均溫度")),
-        "apparent":number(values.get("體感溫度")),
-        "rain":number(values.get("12小時降雨機率")),
-        "wind":number(values.get("風速")),
-        "location":"台中太平",
-        "source":"中央氣象署",
-        "source_url":"https://www.cwa.gov.tw/V8/C/W/Town/Town.html?TID=6602700"
-    }
-
-def get_taiping_weather():
-    now=datetime.now()
-    cached_at=_WEATHER_CACHE.get("at")
-    if cached_at and _WEATHER_CACHE.get("data") and (now-cached_at).total_seconds()<900:
-        return _WEATHER_CACHE["data"]
-    try:
-        official=get_cwa_taiping_weather()
-        if official:
-            _WEATHER_CACHE.update(at=now,data=official)
-            return official
-    except Exception:
-        pass
-    fallback=get_open_meteo_weather()
-    fallback["source"]="備援天氣服務"
-    fallback["source_url"]="https://www.cwa.gov.tw/V8/C/W/Town/Town.html?TID=6602700"
-    return fallback
-
-
-_OFFICIAL_INFO_CACHE = {"at": None, "items": None}
-
-class _FamilyEventParser(HTMLParser):
-    """擷取全家官方活動頁可閱讀文字，不使用非官方活動來源。"""
-    def __init__(self):
-        super().__init__()
-        self.skip = 0
-        self.texts = []
-    def handle_starttag(self, tag, attrs):
-        if tag in {"script", "style", "noscript", "svg"}:
-            self.skip += 1
-    def handle_endtag(self, tag):
-        if tag in {"script", "style", "noscript", "svg"} and self.skip:
-            self.skip -= 1
-    def handle_data(self, data):
-        if self.skip:
+async def _push_with_retry(user_id, messages, attempts=3):
+    """LINE 推播短暫失敗時最多重試 3 次，且不阻塞 FastAPI 事件迴圈。"""
+    max_attempts = max(1, int(attempts or 1))
+    last_error = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            # push_message 是同步網路呼叫，移至工作執行緒避免卡住網站主迴圈。
+            await asyncio.to_thread(push_message, user_id, messages)
+            _REMINDER_WORKER_STATE["last_push_retry_count"] = attempt - 1
             return
-        value = " ".join(data.split()).strip()
-        if 2 <= len(value) <= 90:
-            self.texts.append(value)
-
-def _clean_family_events(texts):
-    date_pattern = re.compile(r"^(20\d{2}/\d{2}/\d{2})\s*[-–－~～]\s*(20\d{2}/\d{2}/\d{2})$")
-    category_names = {"主題活動", "會員優惠", "支付優惠", "鮮食優惠", "抽獎活動", "長期活動"}
-    ignored = {
-        "最新活動", "便利快訊", "商品情報", "各項查詢", "便利服務", "全家相關網站",
-        "全家便利商店", "Image", "上一頁", "下一頁", "更多活動"
-    }
-    events=[]
-    pending_category="官方活動"
-    pending_period=""
-    for value in texts:
-        if value in ignored:
-            continue
-        if value in category_names:
-            if value != "長期活動": pending_category=value
-            else: pending_period="長期活動"
-            continue
-        match=date_pattern.match(value)
-        if match:
-            pending_period=f"{match.group(1)}－{match.group(2)}"
-            continue
-        if len(value)<5 or value.startswith("http"):
-            continue
-        if any(word in value for word in ("活動", "優惠", "加購", "回饋", "咖啡", "點數", "集章", "折", "贈", "買", "兌")):
-            if value not in {x["title"] for x in events}:
-                events.append({
-                    "title":value[:58],
-                    "period":pending_period or "詳見官方活動頁",
-                    "category":pending_category,
-                    "url":"https://www.family.com.tw/Marketing/zh/Event"
-                })
-                pending_period=""
-            if len(events)>=6:
-                break
-    return events
-
-def _fetch_family_events():
-    url="https://www.family.com.tw/Marketing/zh/Event"
-    req=urllib.request.Request(url,headers={"User-Agent":"Mozilla/5.0 WorkLife/5.0"})
-    with urllib.request.urlopen(req,timeout=7) as response:
-        html=response.read().decode("utf-8","ignore")
-    parser=_FamilyEventParser(); parser.feed(html)
-    return _clean_family_events(parser.texts)
-
-def get_official_info():
-    """全家官方活動推播；失敗時保留上次成功資料。"""
-    now=datetime.now()
-    cached_at=_OFFICIAL_INFO_CACHE.get("at")
-    cached=_OFFICIAL_INFO_CACHE.get("items") or []
-    if cached_at and cached and (now-cached_at).total_seconds()<1800:
-        return cached
-    try:
-        events=_fetch_family_events()
-        if not events:
-            raise ValueError("no family events parsed")
-        _OFFICIAL_INFO_CACHE.update(at=now,items=events)
-        return events
-    except Exception:
-        if cached:
-            return cached
-        return [{
-            "title":"查看全家官方最新活動",
-            "period":"官方資料稍後自動重試",
-            "category":"全家官方",
-            "url":"https://www.family.com.tw/Marketing/zh/Event"
-        }]
+        except Exception as exc:
+            last_error = exc
+            if attempt < max_attempts:
+                await asyncio.sleep(min(2 ** (attempt - 1), 4))
+    _REMINDER_WORKER_STATE["last_push_retry_count"] = max(0, max_attempts - 1)
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("LINE 推播失敗，但未取得錯誤原因")
 
 
 def _time_minutes(value):
@@ -248,6 +86,26 @@ def _shift_end_value(shift):
 
 def _display_md(value):
     return value.strftime("%m/%d")
+
+def _shift_display_name(shift):
+    """組合班表通知顯示名稱，兼容不同資料庫欄位版本。"""
+    if not shift:
+        return "上班"
+    for key in ("shift_name", "name", "shift_type_name"):
+        value=str(shift.get(key) or "").strip()
+        if value:
+            return value
+    store=str(shift.get("store_name") or shift.get("store_code") or "").strip()
+    return f"{store}上班" if store else "上班"
+
+def _shift_store_name(shift):
+    if not shift:
+        return ""
+    value=str(shift.get("store_name") or "").strip()
+    if value:
+        return value
+    code=str(shift.get("store_code") or "").upper()
+    return {"B":"太平建昌店","C":"太平溪洲店"}.get(code,"")
 
 def decorate_shift_dates(work_date, shift):
     if not shift:
@@ -336,7 +194,7 @@ def week_schedule(anchor=None):
     return output
 
 
-app=FastAPI(title="Work Life",version="4.2.1")
+app=FastAPI(title="Work Life",version="1.0.5")
 app.add_middleware(
     SessionMiddleware,
     secret_key=settings.session_secret,
@@ -346,61 +204,207 @@ app.add_middleware(
 )
 templates=Jinja2Templates(directory=str(BASE_DIR))
 
+def _static_response(filename, media_type, cache_seconds):
+    """讓瀏覽器短期快取靜態檔，減少重複向 Render 下載。"""
+    response=FileResponse(BASE_DIR / filename,media_type=media_type)
+    response.headers["Cache-Control"]=f"public, max-age={cache_seconds}"
+    return response
+
 @app.get("/static/style.css")
-def static_style(): return FileResponse(BASE_DIR / "style.css",media_type="text/css")
+def static_style(): return _static_response("style.css","text/css",_STATIC_CACHE_SECONDS)
 @app.get("/static/app.js")
-def static_js(): return FileResponse(BASE_DIR / "app.js",media_type="application/javascript")
+def static_js(): return _static_response("app.js","application/javascript",_STATIC_CACHE_SECONDS)
 @app.get("/static/worklife_mascot.png")
-def static_mascot(): return FileResponse(BASE_DIR / "worklife_mascot.png",media_type="image/png")
+def static_mascot(): return _static_response("worklife_mascot.png","image/png",_IMAGE_CACHE_SECONDS)
 @app.get("/static/worklife_frame.png")
-def static_frame(): return FileResponse(BASE_DIR / "worklife_frame.png",media_type="image/png")
+def static_frame(): return _static_response("worklife_frame.png","image/png",_IMAGE_CACHE_SECONDS)
 
 @app.on_event("startup")
 async def startup():
+    """啟動唯一一個背景排程器。"""
+    global _SCHEDULER_TASK, _SCHEDULER_STOP_EVENT
     init_db()
-    asyncio.create_task(reminder_worker())
+
+    # 同一個 Render 程序只允許存在一個排程工作，避免重複推播與資源浪費。
+    if _SCHEDULER_TASK is not None and not _SCHEDULER_TASK.done():
+        return
+
+    _SCHEDULER_STOP_EVENT = asyncio.Event()
+    _SCHEDULER_TASK = asyncio.create_task(
+        reminder_worker(),
+        name=_REMINDER_WORKER_STATE["task_name"],
+    )
+
+@app.on_event("shutdown")
+async def shutdown():
+    """Render 關閉或重新部署時，乾淨停止排程器。"""
+    global _SCHEDULER_TASK, _SCHEDULER_STOP_EVENT
+    if _SCHEDULER_STOP_EVENT is not None:
+        _SCHEDULER_STOP_EVENT.set()
+
+    task = _SCHEDULER_TASK
+    if task is not None and not task.done():
+        try:
+            await asyncio.wait_for(task, timeout=5)
+        except asyncio.TimeoutError:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+    _SCHEDULER_TASK = None
+    _SCHEDULER_STOP_EVENT = None
+    _REMINDER_WORKER_STATE["running"] = False
 
 async def reminder_worker():
-    while True:
-        try:
-            now=datetime.now()
-            for item in due_reminders(now.strftime("%Y-%m-%d"),now.strftime("%H:%M")):
-                try:
-                    content=item["note"] or f'{item["remind_time"]} 提醒'
-                    url=f'{settings.base_url}{item["related_url"] or "/dashboard"}'
-                    sent=push_message(settings.owner_line_user_id,[reminder_flex(item["title"],content,url)])
-                    if sent:
-                        mark_reminder_sent(item["id"])
-                        add_notification_log(item["title"],content,"已推播")
-                except Exception as exc:
-                    add_notification_log(item["title"],str(exc),"失敗")
+    """唯一背景 Scheduler：集中處理班表、提醒、活動與物流通知。"""
+    _REMINDER_WORKER_STATE["running"] = True
+    try:
+        while _SCHEDULER_STOP_EVENT is not None and not _SCHEDULER_STOP_EVENT.is_set():
+            try:
+                # Render 主機預設通常是 UTC；所有班表與提醒皆以台灣時間判斷。
+                cycle_started = time.monotonic()
+                now=datetime.now(TAIPEI_TZ).replace(tzinfo=None)
+                _REMINDER_WORKER_STATE["last_check"] = now.strftime("%Y-%m-%d %H:%M:%S")
+                _REMINDER_WORKER_STATE["last_error"] = None
 
-            # Phase 2：依班表自動推播物流提醒。大夜班凌晨時段會套用前一天班表。
-            for work_date in ((now.date()-timedelta(days=1)).isoformat(), now.date().isoformat()):
-                raw_shift=get_shift(work_date)
-                if not raw_shift or raw_shift.get("store_code")=="X":
-                    continue
-                for item in decorate_timed_rows(work_date,raw_shift,list_daily_logistics(work_date),"start_time"):
-                    if item.get("reminded_at") or item.get("completed_at") or not item.get("line_push"):
-                        continue
+                # 個人設定關閉 LINE 推播時不送出，但排程器仍保持運作。
+                line_push_ready = bool(settings.line_channel_access_token and settings.owner_line_user_id)
+                line_push_enabled = line_push_ready and get_setting("line_push", "1") == "1"
+
+                # 每天只做一次輕量維護；不因每分鐘排程反覆清理資料庫。
+                maintenance_key = now.strftime("%Y-%m-%d")
+                if now.hour >= 4 and get_setting("last_daily_maintenance", "") != maintenance_key:
                     try:
-                        event_at=datetime.strptime(f"{item['display_date']} {item['start_time']}","%Y-%m-%d %H:%M")
-                        remind_at=event_at-timedelta(minutes=int(item.get("remind_minutes") or 10))
-                    except Exception:
-                        continue
-                    if remind_at <= now < event_at+timedelta(minutes=5):
-                        title=f"{item.get('icon') or '🚚'} {item.get('name')}即將到店"
-                        content=f"預計 {item['datetime_display']} 到店"
-                        if item.get("content"):
-                            content += f"｜{item['content']}"
-                        url=f"{settings.base_url}/work-records?work_date={work_date}"
-                        sent=push_message(settings.owner_line_user_id,[reminder_flex(title,content,url)])
-                        if sent:
-                            mark_logistics_reminded(item["id"])
+                        maintenance_result=run_daily_maintenance(now.date())
+                        _REMINDER_WORKER_STATE["last_maintenance"] = maintenance_result
+                        set_setting("last_daily_maintenance", maintenance_key)
+                    except Exception as exc:
+                        _REMINDER_WORKER_STATE["last_error"] = f"每日維護失敗：{type(exc).__name__}: {exc}"
+
+                # 未啟用或尚未設定 LINE 時，不掃描班表、活動與物流資料，降低空轉查詢。
+                if line_push_enabled:
+                    today_text=now.strftime("%Y-%m-%d")
+                    time_text=now.strftime("%H:%M")
+                    # 班表通知直接由已儲存班表產生：上傳 Excel 後無須另外建立提醒。
+                    # 每分鐘檢查今天與明天的班表，上班前 10 分鐘推播一次。
+                    for shift_date in (now.date(), now.date()+timedelta(days=1)):
+                        work_date=shift_date.isoformat()
+                        raw_shift=get_shift(work_date)
+                        if not raw_shift or raw_shift.get("store_code")=="X":
+                            continue
+                        start_time=str(raw_shift.get("start_time") or "").strip()
+                        try:
+                            shift_at=datetime.strptime(f"{work_date} {start_time}","%Y-%m-%d %H:%M")
+                        except Exception as exc:
+                            add_notification_log("班表通知",f"{work_date} 上班時間格式錯誤：{exc}","排程失敗")
+                            continue
+                        remind_at=shift_at-timedelta(minutes=10)
+                        # 只有進入實際通知時間窗才查已發送標記，避免每分鐘無效讀取設定表。
+                        if remind_at <= now < shift_at+timedelta(minutes=5):
+                            marker_key=f"shift_push_sent:{work_date}:{start_time}"
+                            already_sent=get_setting(marker_key,"")=="1"
+                            if already_sent:
+                                continue
+                            shift_name=_shift_display_name(raw_shift)
+                            store_name=_shift_store_name(raw_shift)
+                            title="⏰ 還有 10 分鐘就要上班囉！"
+                            parts=[f"📅 {shift_at.strftime('%m/%d')}",f"🕒 {start_time}",f"💼 {shift_name}"]
+                            if store_name and store_name not in shift_name:
+                                parts.insert(2,f"📍 {store_name}")
+                            content="\n".join(parts)
+                            try:
+                                url=f"{settings.base_url}/work-records?work_date={work_date}"
+                                await _push_with_retry(settings.owner_line_user_id,[reminder_flex(title,content,url)])
+                                set_setting(marker_key,"1")
+                                add_notification_log(title,content,"已推播")
+                            except Exception as exc:
+                                error=f"{type(exc).__name__}: {exc}"
+                                add_notification_log(title,error,"推播失敗")
+                                _REMINDER_WORKER_STATE["last_error"] = error
+
+                    for item in due_reminders(today_text,time_text):
+                        title=item["title"]
+                        content=item["note"] or f'{item["remind_time"]} 提醒'
+                        try:
+                            url=f'{settings.base_url}{item["related_url"] or "/dashboard"}'
+                            await _push_with_retry(settings.owner_line_user_id,[reminder_flex(title,content,url)])
+                            # 只有 LINE API 確認成功後才標記，避免失敗卻被當成已發送。
+                            mark_reminder_sent(item["id"])
                             add_notification_log(title,content,"已推播")
-        except Exception:
-            pass
-        await asyncio.sleep(60)
+                        except Exception as exc:
+                            error=f"{type(exc).__name__}: {exc}"
+                            add_notification_log(title,error,"推播失敗")
+                            _REMINDER_WORKER_STATE["last_error"] = error
+
+                    # 活動中心 LINE 提醒。未填活動時間時，預設於活動當日 09:00 提醒。
+                    for item in due_activities(today_text,time_text):
+                        title=f"📢 活動提醒｜{item['title']}"
+                        parts=[f"📅 {item['activity_date']} {item.get('activity_time') or '09:00'}"]
+                        if item.get("location"):
+                            parts.append(f"📍 {item['location']}")
+                        if item.get("note"):
+                            parts.append(f"📝 {item['note']}")
+                        content="\n".join(parts)
+                        try:
+                            url=f"{settings.base_url}/activities"
+                            await _push_with_retry(settings.owner_line_user_id,[reminder_flex(title,content,url)])
+                            mark_activity_reminded(item["id"])
+                            add_notification_log(title,content,"已推播")
+                        except Exception as exc:
+                            error=f"{type(exc).__name__}: {exc}"
+                            add_notification_log(title,error,"推播失敗")
+                            _REMINDER_WORKER_STATE["last_error"] = error
+
+                    # 依班表自動推播物流提醒；大夜班凌晨時段會套用前一天班表。
+                    for work_date in ((now.date()-timedelta(days=1)).isoformat(), now.date().isoformat()):
+                        raw_shift=get_shift(work_date)
+                        if not raw_shift or raw_shift.get("store_code")=="X":
+                            continue
+                        for item in decorate_timed_rows(work_date,raw_shift,list_daily_logistics(work_date),"start_time"):
+                            if item.get("reminded_at") or item.get("completed_at") or not item.get("line_push"):
+                                continue
+                            try:
+                                event_at=datetime.strptime(f"{item['display_date']} {item['start_time']}","%Y-%m-%d %H:%M")
+                                remind_at=event_at-timedelta(minutes=int(item.get("remind_minutes") or 10))
+                            except Exception as exc:
+                                add_notification_log(item.get("name") or "物流提醒",f"時間格式錯誤：{exc}","排程失敗")
+                                continue
+                            if remind_at <= now < event_at+timedelta(minutes=5):
+                                title=f"{item.get('icon') or '🚚'} {item.get('name')}即將到店"
+                                content=f"預計 {item['datetime_display']} 到店"
+                                if item.get("content"):
+                                    content += f"｜{item['content']}"
+                                try:
+                                    url=f"{settings.base_url}/work-records?work_date={work_date}"
+                                    await _push_with_retry(settings.owner_line_user_id,[reminder_flex(title,content,url)])
+                                    mark_logistics_reminded(item["id"])
+                                    add_notification_log(title,content,"已推播")
+                                except Exception as exc:
+                                    error=f"{type(exc).__name__}: {exc}"
+                                    add_notification_log(title,error,"推播失敗")
+                                    _REMINDER_WORKER_STATE["last_error"] = error
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                # 不再靜默忽略錯誤，健康檢查頁與 Render Log 都能看到原因。
+                _REMINDER_WORKER_STATE["last_error"] = f"{type(exc).__name__}: {exc}"
+                logger.exception("Work Life scheduler error: %s", _REMINDER_WORKER_STATE["last_error"])
+
+            _REMINDER_WORKER_STATE["cycle_count"] += 1
+            _REMINDER_WORKER_STATE["last_cycle_ms"] = max(0, int((time.monotonic() - cycle_started) * 1000))
+
+            # 使用可中斷等待；重新部署時不必硬等 60 秒，並且不建立額外 Timer。
+            try:
+                await asyncio.wait_for(
+                    _SCHEDULER_STOP_EVENT.wait(),
+                    timeout=_SCHEDULER_INTERVAL_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                pass
+    finally:
+        _REMINDER_WORKER_STATE["running"] = False
 
 def current_user(request):
     return request.session.get("user")
@@ -416,7 +420,75 @@ def protected(request,path):
 
 @app.get("/healthz")
 def healthz():
-    return {"status":"ok","version":"4.2.1-render-connect-fix","line_login_ready":settings.line_login_ready,"database":database_status()}
+    """輕量健康檢查：只在開啟此網址時執行，不新增背景程序。"""
+    now = datetime.now(TAIPEI_TZ).replace(tzinfo=None)
+    task_running = bool(_SCHEDULER_TASK and not _SCHEDULER_TASK.done())
+    worker_running = task_running and _REMINDER_WORKER_STATE["running"]
+
+    last_check_text = _REMINDER_WORKER_STATE.get("last_check")
+    scheduler_stale = True
+    if last_check_text:
+        try:
+            last_check_at = datetime.strptime(last_check_text, "%Y-%m-%d %H:%M:%S")
+            scheduler_stale = (now - last_check_at).total_seconds() > (_SCHEDULER_INTERVAL_SECONDS * 3)
+        except ValueError:
+            scheduler_stale = True
+
+    line_push_ready = bool(settings.line_channel_access_token and settings.owner_line_user_id)
+    line_push_enabled = get_setting("line_push", "1") == "1"
+    db_health = database_health_check()
+    last_maintenance = _REMINDER_WORKER_STATE.get("last_maintenance") or latest_maintenance_log()
+    maintenance_today = bool(last_maintenance and last_maintenance.get("run_date") == now.date().isoformat())
+    maintenance_due = now.hour >= 4 and not maintenance_today
+
+    problems = []
+    if not worker_running:
+        problems.append("scheduler_not_running")
+    elif scheduler_stale:
+        problems.append("scheduler_check_stale")
+    if not db_health.get("ok"):
+        problems.append("database_unavailable")
+    if line_push_enabled and not line_push_ready:
+        problems.append("line_push_config_missing")
+    if maintenance_due:
+        problems.append("daily_maintenance_pending")
+    if _REMINDER_WORKER_STATE.get("last_error"):
+        problems.append("scheduler_last_error")
+
+    return {
+        "status":"ok" if not problems else "warning",
+        "version":"1.0.5",
+        "checked_at":now.strftime("%Y-%m-%d %H:%M:%S"),
+        "timezone":"Asia/Taipei",
+        "problems":problems,
+        "line":{
+            "login_ready":settings.line_login_ready,
+            "push_ready":line_push_ready,
+            "push_enabled":line_push_enabled,
+            "configuration_ok":(not line_push_enabled) or line_push_ready,
+        },
+        "database":{**database_status(), **db_health},
+        "scheduler":{
+            "running":worker_running,
+            "stale":scheduler_stale,
+            "last_check":last_check_text,
+            "last_error":_REMINDER_WORKER_STATE.get("last_error"),
+            "task_name":_REMINDER_WORKER_STATE["task_name"],
+            "interval_seconds":_REMINDER_WORKER_STATE["interval_seconds"],
+            "single_worker":True,
+            "idle_scan_skipped_when_line_unavailable":True,
+            "cycle_count":_REMINDER_WORKER_STATE.get("cycle_count",0),
+            "last_cycle_ms":_REMINDER_WORKER_STATE.get("last_cycle_ms"),
+            "last_push_retry_count":_REMINDER_WORKER_STATE.get("last_push_retry_count",0),
+        },
+        "daily_maintenance":{
+            "enabled":True,
+            "scheduled_time":"04:00 Asia/Taipei",
+            "ran_today":maintenance_today,
+            "pending":maintenance_due,
+            "last_result":last_maintenance,
+        },
+    }
 
 @app.get("/")
 def root(request:Request):
@@ -479,16 +551,12 @@ def dashboard(request:Request):
         "tasks":list_tasks(False)[:5],
         "reminders":[x for x in list_reminders(False) if x["remind_date"]==today],
         "counts":dashboard_counts(work_date),
-        "weather":get_taiping_weather(),
-        "official_info":get_official_info(),
+        "activities":upcoming_activities(today,5),
         "week_days":week_schedule(),
         "next_shift":get_next_shift(today),
         "now_text":datetime.now().strftime("%Y/%m/%d %H:%M"),
         "today_label":datetime.now().strftime("%m月%d日"),
-        "life_links":[
-            {"icon":"🏪","title":"全家最新活動","text":"查看全家官方最新優惠與主題活動","url":"https://www.family.com.tw/Marketing/zh/Event","tag":"官方"},
-            {"icon":"🎫","title":"會員優惠","text":"會員點數、兌換與 APP 優惠資訊","url":"https://www.family.com.tw/Marketing/zh/Member","tag":"官方"},
-        ],
+
     })
 
 @app.get("/quick-schedule",response_class=HTMLResponse)
@@ -834,6 +902,58 @@ def logistics_settings_delete(request:Request,item_id:int):
     delete_logistics_setting(item_id)
     return RedirectResponse("/logistics-settings?deleted=1",303)
 
+@app.get("/activities",response_class=HTMLResponse)
+def activities_page(request:Request,edit_id:int|None=None):
+    user,resp=protected(request,"/activities")
+    if resp:return resp
+    return templates.TemplateResponse("activities.html",{
+        "request":request,"user":user,"today":date.today().isoformat(),
+        "activities":list_activities(),"editing":get_activity(edit_id) if edit_id else None
+    })
+
+@app.post("/activities")
+def activity_add(
+    request:Request,title:str=Form(...),activity_date:str=Form(...),
+    activity_time:str=Form(""),location:str=Form(""),note:str=Form(""),
+    line_push:str=Form(""),remind_minutes:int=Form(30)
+):
+    user,resp=protected(request,"/activities")
+    if resp:return resp
+    add_activity(title.strip(),activity_date,activity_time,location.strip(),note.strip(),line_push=="1",max(remind_minutes,0))
+    return RedirectResponse("/activities?saved=1",303)
+
+@app.post("/activities/{item_id}/edit")
+def activity_edit(
+    request:Request,item_id:int,title:str=Form(...),activity_date:str=Form(...),
+    activity_time:str=Form(""),location:str=Form(""),note:str=Form(""),
+    line_push:str=Form(""),remind_minutes:int=Form(30)
+):
+    user,resp=protected(request,"/activities")
+    if resp:return resp
+    update_activity(item_id,title.strip(),activity_date,activity_time,location.strip(),note.strip(),line_push=="1",max(remind_minutes,0))
+    return RedirectResponse("/activities?updated=1",303)
+
+@app.post("/activities/{item_id}/complete")
+def activity_complete(request:Request,item_id:int):
+    user,resp=protected(request,"/activities")
+    if resp:return resp
+    complete_activity(item_id,True)
+    return RedirectResponse("/activities?completed=1",303)
+
+@app.post("/activities/{item_id}/restore")
+def activity_restore(request:Request,item_id:int):
+    user,resp=protected(request,"/activities")
+    if resp:return resp
+    complete_activity(item_id,False)
+    return RedirectResponse("/activities?restored=1",303)
+
+@app.post("/activities/{item_id}/delete")
+def activity_delete(request:Request,item_id:int):
+    user,resp=protected(request,"/activities")
+    if resp:return resp
+    delete_activity(item_id)
+    return RedirectResponse("/activities?deleted=1",303)
+
 @app.get("/notifications",response_class=HTMLResponse)
 def notification_page(request:Request):
     user,resp=protected(request,"/notifications")
@@ -903,16 +1023,34 @@ def profile_page(request:Request):
     return templates.TemplateResponse("profile.html",{
         "request":request,"user":user,
         "line_push":get_setting("line_push","1"),
-        "auto_refresh":get_setting("auto_refresh","15")
+        "line_push_ready":bool(settings.line_channel_access_token and settings.owner_line_user_id)
     })
 
 @app.post("/profile")
-def profile_save(request:Request,line_push:str=Form(""),auto_refresh:str=Form("15")):
+def profile_save(request:Request,line_push:str=Form("")):
     user,resp=protected(request,"/profile")
     if resp:return resp
     set_setting("line_push","1" if line_push=="1" else "0")
-    set_setting("auto_refresh",auto_refresh)
     return RedirectResponse("/profile?saved=1",303)
+
+@app.post("/profile/test-line-push")
+def profile_test_line_push(request:Request):
+    user,resp=protected(request,"/profile")
+    if resp:return resp
+    title="LINE 測試通知"
+    now=datetime.now(TAIPEI_TZ)
+    content=f"Work Life LINE 推播測試成功。\n測試時間：{now.strftime('%Y/%m/%d %H:%M:%S')}"
+    try:
+        push_message(
+            settings.owner_line_user_id,
+            [reminder_flex(title,content,f"{settings.base_url}/profile")]
+        )
+        add_notification_log(title,content,"成功")
+        return RedirectResponse("/profile?test_push=success",303)
+    except Exception as exc:
+        error=str(exc)[:300]
+        add_notification_log(title,error,"失敗")
+        return RedirectResponse("/profile?test_push=failed&reason="+urllib.parse.quote(error),303)
 
 @app.get("/api/dashboard-state")
 def dashboard_state(request:Request):
@@ -930,8 +1068,7 @@ def dashboard_state(request:Request):
         "next_work_item":next_work_item,
         "attendance":attendance_for(work_date),
         "counts":dashboard_counts(work_date),
-        "weather":get_taiping_weather(),
-        "official_info":get_official_info(),
+        "activities":upcoming_activities(today,5),
         "next_shift":get_next_shift(today),
         "reminder":reminders[0] if reminders else None,
         "updated_at":datetime.now().strftime("%H:%M:%S")
