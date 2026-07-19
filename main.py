@@ -194,7 +194,7 @@ def week_schedule(anchor=None):
     return output
 
 
-app=FastAPI(title="Work Life",version="1.0.5")
+app=FastAPI(title="Work Life",version="1.0.5.2")
 app.add_middleware(
     SessionMiddleware,
     secret_key=settings.session_secret,
@@ -457,7 +457,7 @@ def healthz():
 
     return {
         "status":"ok" if not problems else "warning",
-        "version":"1.0.5",
+        "version":"1.0.5.2",
         "checked_at":now.strftime("%Y-%m-%d %H:%M:%S"),
         "timezone":"Asia/Taipei",
         "problems":problems,
@@ -489,6 +489,10 @@ def healthz():
             "last_result":last_maintenance,
         },
     }
+
+@app.head("/", include_in_schema=False)
+def root_head():
+    return HTMLResponse(status_code=200)
 
 @app.get("/")
 def root(request:Request):

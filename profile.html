@@ -1,18 +1,18 @@
 <!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/style.css"><title>設定</title></head>
-<body class="wl-body"><header class="wl-header"><a href="/dashboard" class="wl-brand"><img src="/static/worklife_mascot.png"><b>Work Life</b><small>設定</small></a><nav><a href="/dashboard">首頁</a><a href="/quick-schedule">快速班表</a><a href="/work-records">工作事項</a><a href="/logistics-settings">物流設定</a><a href="/notifications">提醒</a><a class="active" href="/profile">設定</a></nav></header>
+<body class="wl-body"><header class="wl-header"><a href="/dashboard" class="wl-brand"><img src="/static/worklife_mascot.png"><b>Work Life</b><small>設定</small></a><nav><a href="/dashboard">首頁</a><a href="/quick-schedule">快速班表</a><a href="/work-records">工作事項</a><a href="/logistics-settings">物流設定</a><a href="/activities">活動</a><a href="/notifications">提醒</a><a class="active" href="/profile">設定</a></nav></header>
 <main class="wl-main">
 {% if request.query_params.get("saved") %}<div class="notice success">系統設定已儲存。</div>{% endif %}
 <div class="page-head"><div><h1>⚙ 設定</h1><p>所有設定改為彈跳視窗操作，手機版與網頁版共用同一份設定。</p></div></div>
 <div class="settings-launch-grid">
   <section class="wl-card profile-box settings-profile-card"><img src="{{ user.pictureUrl or '/static/worklife_mascot.png' }}"><h2>{{ user.displayName }}</h2><p>LINE 登入已連結</p><button type="button" class="wl-btn ghost full" data-open-account>查看帳號資訊</button></section>
-  <button type="button" class="wl-card settings-launch-card" data-open-system><span>⚙️</span><div><h2>系統設定</h2><p>LINE 推播與頁面更新速度</p></div><b>›</b></button>
+  <button type="button" class="wl-card settings-launch-card" data-open-system><span>⚙️</span><div><h2>系統設定</h2><p>LINE 推播設定</p></div><b>›</b></button>
   <button type="button" class="wl-card settings-launch-card" data-open-logistics-link><span>🚚</span><div><h2>物流設定</h2><p>管理物流時間與自動套用</p></div><b>›</b></button>
   <button type="button" class="wl-card settings-launch-card" data-open-reminder-link><span>🔔</span><div><h2>提醒設定</h2><p>管理生活與工作提醒</p></div><b>›</b></button>
   <button type="button" class="wl-card settings-launch-card danger-card" data-open-logout><span>↪️</span><div><h2>登出</h2><p>登出目前的 LINE 帳號</p></div><b>›</b></button>
 </div>
 </main>
 
-<div class="modal settings-modal" data-system-modal hidden><div class="modal-box"><div class="modal-head"><h2>⚙️ 系統設定</h2><button type="button" data-close-system>×</button></div><form method="post" action="/profile"><label class="check setting-toggle"><input type="checkbox" name="line_push" value="1" {{ 'checked' if line_push=='1' else '' }}><span><b>啟用 LINE 私訊推播</b><small>接收班表、物流及提醒通知</small></span></label><label>頁面自動更新<select name="auto_refresh"><option value="15" {{ 'selected' if auto_refresh=='15' else '' }}>15 秒</option><option value="30" {{ 'selected' if auto_refresh=='30' else '' }}>30 秒</option><option value="60" {{ 'selected' if auto_refresh=='60' else '' }}>60 秒</option></select></label><button class="wl-btn full">儲存設定</button></form></div></div>
+<div class="modal settings-modal" data-system-modal hidden><div class="modal-box"><div class="modal-head"><h2>⚙️ 系統設定</h2><button type="button" data-close-system>×</button></div><form method="post" action="/profile"><label class="check setting-toggle"><input type="checkbox" name="line_push" value="1" {{ 'checked' if line_push=='1' else '' }}><span><b>啟用 LINE 私訊推播</b><small>接收班表、物流及提醒通知</small></span></label><button class="wl-btn full">儲存設定</button></form></div></div>
 
 <div class="modal settings-modal" data-account-modal hidden><div class="modal-box"><div class="modal-head"><h2>👤 帳號資訊</h2><button type="button" data-close-account>×</button></div><div class="account-modal-content"><img src="{{ user.pictureUrl or '/static/worklife_mascot.png' }}"><h2>{{ user.displayName }}</h2><p>已透過 LINE 安全登入</p><div class="account-status">✓ 帳號連結正常</div></div><button type="button" class="wl-btn full" data-close-account>完成</button></div></div>
 
